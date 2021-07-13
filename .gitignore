@@ -1,0 +1,4 @@
+**/__pycache__/
+**/nomad/
+*-checkpoint.py
+*-checkpoint.ipynb
