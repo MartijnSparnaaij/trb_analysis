@@ -7,10 +7,13 @@ from _collections import defaultdict, deque
 import json
 from pathlib import Path
 
+from scipy import stats
+
 import NOMAD
 from NOMAD.activity_scheduler import STAFF_GROUP_NAME
 from NOMAD.nomad_model import onlyCreate
 import numpy as np
+from copy import deepcopy
 
 
 MAX_REPLICATIONS = 5000
@@ -33,6 +36,9 @@ STAFF_CUSTOMER = 'staff_customer'
 CUSTOMER_CUSTOMER = 'customer_customer'
 INTERACTION_TYPES = (STAFF_CUSTOMER, CUSTOMER_CUSTOMER)
 
+ARRAY_NAMES_FLD = 'arrayNames'
+ARRAY_NAMES_DICT_FLD = 'arrayNamesDict'
+INDICES_FLD = 'indices' 
 
 class ExperimentRunner():
     
@@ -50,13 +56,25 @@ class ExperimentRunner():
         rng = np.random.default_rng()
         self.seeds = rng.choice(np.arange(1,max_replications*2), max_replications, False).tolist()
         
-        self._init_experiment_file()
         self.combined_data = {cut_off_distance:{STAFF_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES}, 
                                                 CUSTOMER_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES}} 
                               for cut_off_distance in self.cut_off_distances}
-        self.combined_data_indices = {cut_off_distance:{STAFF_CUSTOMER:{cdf_type:deque('', self.convergence_config[STEPS]) for cdf_type in CDF_TYPES}, 
-                                                        CUSTOMER_CUSTOMER:{cdf_type:deque('', self.convergence_config[STEPS]) for cdf_type in CDF_TYPES}} 
+        self.combined_data_indices = {cut_off_distance:{STAFF_CUSTOMER:{cdf_type:deque('', self.convergence_config[STEPS] + 1) for cdf_type in CDF_TYPES}, 
+                                                        CUSTOMER_CUSTOMER:{cdf_type:deque('', self.convergence_config[STEPS] + 1) for cdf_type in CDF_TYPES}} 
                                       for cut_off_distance in self.cut_off_distances} # Of the last 5 entries
+        
+        self.array_names = {cut_off_distance:{
+                            STAFF_CUSTOMER:{cdf_type:get_array_field_name(cut_off_distance, STAFF_CUSTOMER, cdf_type) for cdf_type in CDF_TYPES}, 
+                            CUSTOMER_CUSTOMER:{cdf_type:get_array_field_name(cut_off_distance, CUSTOMER_CUSTOMER, cdf_type) for cdf_type in CDF_TYPES}} 
+                            for cut_off_distance in self.cut_off_distances}
+        
+        self.array_names_2_dict = {}
+        for cut_off_distance, interaction_types in self.array_names.items():
+            for interaction_type, cdf_types in interaction_types.items():
+                for cdf_type, array_name in cdf_types.items():
+                    self.array_names_2_dict[array_name] = (cut_off_distance, interaction_type, cdf_type)
+        
+        self._init_experiment_file()
             
     def _init_experiment_file(self):
         self.experiment_info = {
@@ -72,6 +90,9 @@ class ExperimentRunner():
             'failed_replication_count': 0,
             'successful_replications': [], # (seed, .scen filename)
             'failed_replications': [], # seed
+            'combined_data_info': {ARRAY_NAMES_FLD: self.array_names,
+                                   ARRAY_NAMES_DICT_FLD: self.array_names_2_dict,
+                                   INDICES_FLD:convert_sub_fields_to_list(self.combined_data_indices)},
             'convergence_stats': [] # {replications:#rep, cvm_stats:{cdf_1:[pvalues]}}
             }
     
@@ -80,10 +101,9 @@ class ExperimentRunner():
 
     def run_experiment(self):
         replication_nr = 0
-        not_converged = True
         last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
         failed_count = 0
-        while replication_nr < self.init_replications and not_converged:
+        while replication_nr < self.max_replications:
             seed = self.seeds[replication_nr]
             NOMAD.NOMAD_RNG = np.random.default_rng(seed)
             try:
@@ -105,13 +125,23 @@ class ExperimentRunner():
             
             if replication_nr - failed_count == last_convergence_check + self.convergence_config['steps']:
                 # Check convergence
+                p_values, has_converged = self._check_convergence() 
+                
                 last_convergence_check = replication_nr
-                not_converged = False
                 failed_count = 0                
                 # save combined data 2 file
+                self._save_combined_data()
+                self.experiment_info['combined_data_info'][INDICES_FLD] = convert_sub_fields_to_list(self.combined_data_indices)
+                self.experiment_info['convergence_stats'].append((replication_nr, p_values, convert_sub_fields_to_list(self.combined_data_indices)))
                 
                 with open(self.experiment_filename, 'w') as f:
-                    json.dump(self.experiment_info, f, indent=4)          
+                    json.dump(self.experiment_info, f, indent=4)    
+                    
+                if has_converged:
+                    print(f'{"="*40}\n')
+                    print(f'FINISHED!!!!!!!!!!\n')
+                    print(f'{"="*40}')
+                    break 
                         
             replication_nr += 1
 
@@ -146,22 +176,80 @@ class ExperimentRunner():
     def _add_data_2_combined_data(self, weigths_per_connection, weigths_per_agent, connections_per_agent):
         for cut_off_distance in self.cut_off_distances:
             for interaction_type in INTERACTION_TYPES:
-                self.extend_array(cut_off_distance, interaction_type, WEIGHT_OVER_CONTACTS, 
+                self._extend_array(cut_off_distance, interaction_type, WEIGHT_OVER_CONTACTS, 
                                   weigths_per_connection[cut_off_distance][interaction_type])
 
                 weigths_per_agent_list = list(weigths_per_agent[cut_off_distance][interaction_type].values())
-                self.extend_array(cut_off_distance, interaction_type, WEIGHT_OVER_AGENTS, 
+                self._extend_array(cut_off_distance, interaction_type, WEIGHT_OVER_AGENTS, 
                                   weigths_per_agent_list)
 
                 connections_per_agent_list = list(connections_per_agent[cut_off_distance][interaction_type].values())
-                self.extend_array(cut_off_distance, interaction_type, CONTACTS_OVER_AGENTS, 
+                self._extend_array(cut_off_distance, interaction_type, CONTACTS_OVER_AGENTS, 
                                   connections_per_agent_list)
                       
-    def extend_array(self, cut_off_distance, interaction_type, cdf_type, newArrayPart):
+    def _extend_array(self, cut_off_distance, interaction_type, cdf_type, newArrayPart):
         try:
-            self.combined_data_indices[cut_off_distance][interaction_type][cdf_type].append(len(self.combined_data[cut_off_distance][interaction_type][cdf_type]))
             self.combined_data[cut_off_distance][interaction_type][cdf_type] = np.concatenate((self.combined_data[cut_off_distance][interaction_type][cdf_type], 
-                                                                                                 newArrayPart))
+                                                                                                 newArrayPart))                        
         except (ValueError, TypeError):
-            self.combined_data_indices[cut_off_distance][interaction_type][cdf_type].append(0)
             self.combined_data[cut_off_distance][interaction_type][cdf_type] = np.array(newArrayPart)
+            
+        self.combined_data_indices[cut_off_distance][interaction_type][cdf_type].append(len(self.combined_data[cut_off_distance][interaction_type][cdf_type]))
+
+    def _save_combined_data(self):
+        arrays = {}
+        for cut_off_distance, interaction_types in self.combined_data.items():
+            for interaction_type, cdf_types in interaction_types.items():
+                for cdf_type, array in cdf_types.items():
+                    array_name = self.array_names[cut_off_distance][interaction_type][cdf_type]
+                    arrays[array_name] = array
+        
+        np.savez(self.combined_stats_filename, **arrays)
+        
+    def _check_convergence(self):
+        p_values = {}
+        has_converged = True
+        for cut_off_distance, interaction_types in self.combined_data.items():
+            for interaction_type, cdf_types in interaction_types.items():
+                for cdf_type, array in cdf_types.items():
+                    array_indices = self.combined_data_indices[cut_off_distance][interaction_type][cdf_type]
+                    p_values_local, has_converged_local =self._check_convergence_for_array(array, array_indices)
+                    has_converged = has_converged and has_converged_local
+                    array_name = self.array_names[cut_off_distance][interaction_type][cdf_type]
+                    p_values[array_name] = p_values_local
+        
+        return p_values, has_converged
+        
+    def _check_convergence_for_array(self, array, array_indices):
+        p_values = []
+        base_array = array[:array_indices[-1]]
+        for ii in range(2,self.convergence_config[STEPS] + 2):
+            compare_array = array[:array_indices[-ii]]
+            res = stats.cramervonmises_2samp(base_array, compare_array)
+            p_values.append(res.pvalue)
+            base_array = compare_array
+        
+        has_converged = True
+        for p_value in p_values:
+            if p_value < self.convergence_config[P_THRESHOLD]:
+                has_converged = False
+                break
+            
+        return p_values, has_converged
+        
+def get_array_field_name(cut_off_distance, interaction_type, cdf_type):
+    return f'{cut_off_distance}_{interaction_type}_{cdf_type}'
+
+def convert_sub_fields_to_list(data_dict):
+    def _convert_entry(dict_part):
+        for key, value in dict_part.items():
+            if isinstance(value, dict):
+                _convert_entry(value)
+            else:
+                dict_part[key] = list(value)
+    
+    data_dict_copy = deepcopy(data_dict)
+    _convert_entry(data_dict_copy)
+    return data_dict_copy
+    
+    
