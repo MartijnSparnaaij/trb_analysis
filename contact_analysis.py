@@ -4,16 +4,21 @@ Created on 13 Jul 2021
 @author: Martijn Sparnaaij
 '''
 from _collections import defaultdict, deque
+from copy import deepcopy
 import json
+from math import ceil
 from pathlib import Path
 
+from pubsub import pub
 from scipy import stats
 
 import NOMAD
 from NOMAD.activity_scheduler import STAFF_GROUP_NAME
+from NOMAD.constants import TIMESTEP_MSG_ID, SEND_TIME_MSG_INTERVAL_SEC
 from NOMAD.nomad_model import onlyCreate
 import numpy as np
-from copy import deepcopy
+
+
 
 
 MAX_REPLICATIONS = 5000
@@ -75,6 +80,10 @@ class ExperimentRunner():
                     self.array_names_2_dict[array_name] = (cut_off_distance, interaction_type, cdf_type)
         
         self._init_experiment_file()
+        pub.subscribe(self._update_time, TIMESTEP_MSG_ID)
+            
+    def _update_time(self, timeInd, currentTime): # @UnusedVariable
+        print('.', end='')
             
     def _init_experiment_file(self):
         self.experiment_info = {
@@ -105,9 +114,11 @@ class ExperimentRunner():
         failed_count = 0
         while replication_nr < self.max_replications:
             seed = self.seeds[replication_nr]
+            print(f'Runnig replication {replication_nr} with seed = {seed}')            
             NOMAD.NOMAD_RNG = np.random.default_rng(seed)
             try:
                 nomad_model = onlyCreate(self.scenario_filename, lrcmLoadFile=self.lrcm_filename, seed=seed)
+                print('='*ceil(nomad_model.duration/SEND_TIME_MSG_INTERVAL_SEC))
                 nomad_model.start()
             except:
                 del nomad_model
@@ -116,15 +127,17 @@ class ExperimentRunner():
                 self.experiment_info['failed_replication_count'] += 1
                 self.experiment_info['failed_replications'].append(seed)                              
                 continue
+            print('\nSimulation done. Processing data... ', end='')
             # Process output accessing it directly via the nomad_model instance
             self._process_data(nomad_model)
                    
             self.experiment_info['successful_replication_count'] += 1
             self.experiment_info['successful_replications'].append((seed, str(nomad_model.outputManager.scenarioFilename)))
             del nomad_model     
-            
+            print('done')
             if replication_nr - failed_count == last_convergence_check + self.convergence_config['steps']:
                 # Check convergence
+                print('Checking convergence... ', end='')
                 p_values, has_converged = self._check_convergence() 
                 
                 last_convergence_check = replication_nr
@@ -137,6 +150,7 @@ class ExperimentRunner():
                 with open(self.experiment_filename, 'w') as f:
                     json.dump(self.experiment_info, f, indent=4)    
                     
+                print('done')
                 if has_converged:
                     print(f'{"="*40}\n')
                     print(f'FINISHED!!!!!!!!!!\n')
@@ -144,7 +158,7 @@ class ExperimentRunner():
                     break 
                         
             replication_nr += 1
-
+            
     def _process_data(self, nomad_model):
         weigths_per_connection = {cut_off_distance:{STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[]} for cut_off_distance in self.cut_off_distances}
         weigths_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(float), CUSTOMER_CUSTOMER:defaultdict(float)} for cut_off_distance in self.cut_off_distances}
