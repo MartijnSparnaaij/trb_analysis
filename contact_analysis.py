@@ -205,31 +205,12 @@ class ExperimentRunner():
                 print('done')
     
     def _process_data(self, nomad_model, connections=None, ID_2_group_ID=None, time_step=None):
-        weigths_per_connection = {cut_off_distance:{STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[]} for cut_off_distance in self.cut_off_distances}
-        weigths_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(float), CUSTOMER_CUSTOMER:defaultdict(float)} for cut_off_distance in self.cut_off_distances}
-        connections_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(int), CUSTOMER_CUSTOMER:defaultdict(int)} for cut_off_distance in self.cut_off_distances}
-        
         if nomad_model is not None:
             connections = nomad_model.outputManager.connections
             ID_2_group_ID = nomad_model.outputManager.ID2groupID
             time_step = nomad_model.timeInfo.timeStep
         
-        for IDtuple, value in connections.items():
-            ID_0 = IDtuple[0]
-            ID_1 = IDtuple[1]
-            if (ID_2_group_ID[ID_0] == STAFF_GROUP_NAME or ID_2_group_ID[ID_1] == STAFF_GROUP_NAME):
-                interaction_type = STAFF_CUSTOMER
-            else:
-                interaction_type = CUSTOMER_CUSTOMER
-                
-            valueArray = np.array(value)
-            for cut_off_distance in self.cut_off_distances:
-                connectionWeight = time_step*np.sum(valueArray[:,1] <= cut_off_distance)
-                weigths_per_connection[cut_off_distance][interaction_type].append(connectionWeight)
-                weigths_per_agent[cut_off_distance][interaction_type][ID_0] += connectionWeight
-                weigths_per_agent[cut_off_distance][interaction_type][ID_1] += connectionWeight
-                connections_per_agent[cut_off_distance][interaction_type][ID_0] += 1
-                connections_per_agent[cut_off_distance][interaction_type][ID_1] += 1
+        weigths_per_connection, weigths_per_agent, connections_per_agent = compute_weighted_graph(self.cut_off_distances, connections, ID_2_group_ID, time_step)
 
         self._add_data_2_combined_data(weigths_per_connection, weigths_per_agent, connections_per_agent)
 
@@ -328,3 +309,27 @@ def load_data(scen_filename):
 
 def get_seed_from_filename(filename):
     return int(filename.stem.split('_')[-1])
+
+def compute_weighted_graph(cut_off_distances, connections, ID_2_group_ID, time_step):      
+    weigths_per_connection = {cut_off_distance:{STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[]} for cut_off_distance in cut_off_distances}
+    weigths_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(float), CUSTOMER_CUSTOMER:defaultdict(float)} for cut_off_distance in cut_off_distances}
+    connections_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(int), CUSTOMER_CUSTOMER:defaultdict(int)} for cut_off_distance in cut_off_distances}
+
+    for IDtuple, value in connections.items():
+        ID_0 = IDtuple[0]
+        ID_1 = IDtuple[1]
+        if (ID_2_group_ID[ID_0] == STAFF_GROUP_NAME or ID_2_group_ID[ID_1] == STAFF_GROUP_NAME):
+            interaction_type = STAFF_CUSTOMER
+        else:
+            interaction_type = CUSTOMER_CUSTOMER
+
+        valueArray = np.array(value)
+        for cut_off_distance in cut_off_distances:
+            connectionWeight = time_step*np.sum(valueArray[:,1] <= cut_off_distance)
+            weigths_per_connection[cut_off_distance][interaction_type].append(connectionWeight)
+            weigths_per_agent[cut_off_distance][interaction_type][ID_0] += connectionWeight
+            weigths_per_agent[cut_off_distance][interaction_type][ID_1] += connectionWeight
+            connections_per_agent[cut_off_distance][interaction_type][ID_0] += 1
+            connections_per_agent[cut_off_distance][interaction_type][ID_1] += 1
+
+    return weigths_per_connection, weigths_per_agent, connections_per_agent
