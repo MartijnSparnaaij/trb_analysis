@@ -17,6 +17,7 @@ from NOMAD.activity_scheduler import STAFF_GROUP_NAME
 from NOMAD.constants import TIMESTEP_MSG_ID, SEND_TIME_MSG_INTERVAL_SEC
 from NOMAD.nomad_model import onlyCreate
 import numpy as np
+from NOMAD.output_manager import BasicFileOutputManager
 
 
 
@@ -47,13 +48,14 @@ INDICES_FLD = 'indices'
 
 class ExperimentRunner():
     
-    def __init__(self, scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
+    def __init__(self, scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS, data_folder=None):
         self.scenario_filename = Path(scenario_filename)
         self.lrcm_filename = lrcm_filename
         self.convergence_config = convergence_config
         self.cut_off_distances = cut_off_distances
         self.max_replications = max_replications
         self.init_replications = init_replications
+        self.data_folder = data_folder
         
         self.experiment_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_experiment.json')
         self.combined_stats_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_combined.stats')
@@ -159,14 +161,58 @@ class ExperimentRunner():
                         
             replication_nr += 1
             
-    def _process_data(self, nomad_model):
+            
+    def recreate_from_folder(self):
+        # Get a scenario file from folder
+        # Get time step from file
+        # Get all conncetion files 
+        # Process all files
+        scen_filenames = get_scenario_files_from_dir(self.data_folder)
+        replication_nr = 0
+        last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
+        failed_count = 0
+     
+        for scen_filename in scen_filenames:
+            try:
+                time_step, seed, connections, ID_2_group_ID = load_data(scen_filename)
+            except:
+                replication_nr += 1   
+                failed_count += 1
+                self.experiment_info['failed_replication_count'] += 1
+                self.experiment_info['failed_replications'].append(seed)                              
+                continue
+            
+            self._process_data(None, connections, ID_2_group_ID, time_step)
+                   
+            self.experiment_info['successful_replication_count'] += 1
+            self.experiment_info['successful_replications'].append((seed, str(scen_filename)))
+            print('done')
+            if replication_nr == last_convergence_check + self.convergence_config['steps']:
+                # Check convergence
+                print('Checking convergence... ', end='')
+                p_values, _ = self._check_convergence() 
+                
+                last_convergence_check = replication_nr
+                failed_count = 0                
+                # save combined data 2 file
+                self._save_combined_data()
+                self.experiment_info['combined_data_info'][INDICES_FLD] = convert_sub_fields_to_list(self.combined_data_indices)
+                self.experiment_info['convergence_stats'].append((replication_nr, p_values, convert_sub_fields_to_list(self.combined_data_indices)))
+                
+                with open(self.experiment_filename, 'w') as f:
+                    json.dump(self.experiment_info, f, indent=4)    
+                    
+                print('done')
+    
+    def _process_data(self, nomad_model, connections=None, ID_2_group_ID=None, time_step=None):
         weigths_per_connection = {cut_off_distance:{STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[]} for cut_off_distance in self.cut_off_distances}
         weigths_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(float), CUSTOMER_CUSTOMER:defaultdict(float)} for cut_off_distance in self.cut_off_distances}
         connections_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(int), CUSTOMER_CUSTOMER:defaultdict(int)} for cut_off_distance in self.cut_off_distances}
         
-        connections = nomad_model.outputManager.connections
-        ID_2_group_ID = nomad_model.outputManager.ID2groupID
-        time_step = nomad_model.timeInfo.timeStep
+        if nomad_model is not None:
+            connections = nomad_model.outputManager.connections
+            ID_2_group_ID = nomad_model.outputManager.ID2groupID
+            time_step = nomad_model.timeInfo.timeStep
         
         for IDtuple, value in connections.items():
             ID_0 = IDtuple[0]
@@ -266,4 +312,19 @@ def convert_sub_fields_to_list(data_dict):
     _convert_entry(data_dict_copy)
     return data_dict_copy
     
+def get_scenario_files_from_dir(data_folder):
+    return sorted([entry for entry in data_folder.iterdir() if entry.is_file() and entry.suffix == BasicFileOutputManager.SCEN_EXTENSION])
+
+def load_data(scen_filename):
+    scen_data = BasicFileOutputManager.readScenarioDataFile(scen_filename)
+    conn_filename = scen_filename.parent.joinpath(scen_data.connFile)
+    with open(conn_filename, 'r') as f:
+        conn_data = json.load(f)
+        
+    connections = {tuple(ID_list):conn_data[ID_list] for ID_list in conn_data['ID2IDtuple']}
+    ID_2_group_ID = {int(ID):group_ID for ID, group_ID in conn_data['ID2groupID'].items()}
     
+    return scen_data.timeStep, get_seed_from_filename(scen_filename), connections, ID_2_group_ID
+
+def get_seed_from_filename(filename):
+    return int(filename.stem.split('_')[-1])
