@@ -40,7 +40,9 @@ CUT_OFF_DISTANCES_VALUES = (1.0, 1.5, 2.0)
 
 STAFF_CUSTOMER = 'staff_customer'
 CUSTOMER_CUSTOMER = 'customer_customer'
-INTERACTION_TYPES = (STAFF_CUSTOMER, CUSTOMER_CUSTOMER)
+CUSTOMER_STAFF = 'customer_staff'
+
+INTERACTION_TYPES = (STAFF_CUSTOMER, CUSTOMER_CUSTOMER, CUSTOMER_STAFF)
 
 ARRAY_NAMES_FLD = 'arrayNames'
 ARRAY_NAMES_DICT_FLD = 'arrayNamesDict'
@@ -64,15 +66,18 @@ class ExperimentRunner():
         self.seeds = rng.choice(np.arange(1,max_replications*2), max_replications, False).tolist()
         
         self.combined_data = {cut_off_distance:{STAFF_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES}, 
-                                                CUSTOMER_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES}} 
-                              for cut_off_distance in self.cut_off_distances}
+                                                CUSTOMER_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES},
+                                                CUSTOMER_STAFF:{cdf_type:None for cdf_type in (WEIGHT_OVER_AGENTS, CONTACTS_OVER_AGENTS)}} 
+                                      for cut_off_distance in self.cut_off_distances}
         self.combined_data_indices = {cut_off_distance:{STAFF_CUSTOMER:{cdf_type:deque('', self.convergence_config[STEPS] + 1) for cdf_type in CDF_TYPES}, 
-                                                        CUSTOMER_CUSTOMER:{cdf_type:deque('', self.convergence_config[STEPS] + 1) for cdf_type in CDF_TYPES}} 
+                                                        CUSTOMER_CUSTOMER:{cdf_type:deque('', self.convergence_config[STEPS] + 1) for cdf_type in CDF_TYPES},
+                                                       CUSTOMER_STAFF:{cdf_type:deque('', self.convergence_config[STEPS] + 1) for cdf_type in (WEIGHT_OVER_AGENTS, CONTACTS_OVER_AGENTS)}} 
                                       for cut_off_distance in self.cut_off_distances} # Of the last 5 entries
         
         self.array_names = {cut_off_distance:{
                             STAFF_CUSTOMER:{cdf_type:get_array_field_name(cut_off_distance, STAFF_CUSTOMER, cdf_type) for cdf_type in CDF_TYPES}, 
-                            CUSTOMER_CUSTOMER:{cdf_type:get_array_field_name(cut_off_distance, CUSTOMER_CUSTOMER, cdf_type) for cdf_type in CDF_TYPES}} 
+                            CUSTOMER_CUSTOMER:{cdf_type:get_array_field_name(cut_off_distance, CUSTOMER_CUSTOMER, cdf_type) for cdf_type in CDF_TYPES},
+                            CUSTOMER_STAFF:{cdf_type:get_array_field_name(cut_off_distance, CUSTOMER_STAFF, cdf_type) for cdf_type in (WEIGHT_OVER_AGENTS, CONTACTS_OVER_AGENTS)}} 
                             for cut_off_distance in self.cut_off_distances}
         
         self.array_names_2_dict = {}
@@ -171,9 +176,11 @@ class ExperimentRunner():
         replication_nr = 0
         last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
         failed_count = 0
-     
+        print(len(scen_filenames))
+    
         for scen_filename in scen_filenames:
             try:
+                print(f'{replication_nr:04d} - {scen_filename} ...', end='')
                 time_step, seed, connections, ID_2_group_ID = load_data(scen_filename)
             except:
                 replication_nr += 1   
@@ -203,6 +210,7 @@ class ExperimentRunner():
                     json.dump(self.experiment_info, f, indent=4)    
                     
                 print('done')
+            replication_nr += 1
     
     def _process_data(self, nomad_model, connections=None, ID_2_group_ID=None, time_step=None):
         if nomad_model is not None:
@@ -217,7 +225,9 @@ class ExperimentRunner():
     def _add_data_2_combined_data(self, weigths_per_connection, weigths_per_agent, connections_per_agent):
         for cut_off_distance in self.cut_off_distances:
             for interaction_type in INTERACTION_TYPES:
-                self._extend_array(cut_off_distance, interaction_type, WEIGHT_OVER_CONTACTS, 
+      
+                if interaction_type in (STAFF_CUSTOMER, CUSTOMER_CUSTOMER):
+                    self._extend_array(cut_off_distance, interaction_type, WEIGHT_OVER_CONTACTS, 
                                   weigths_per_connection[cut_off_distance][interaction_type])
 
                 weigths_per_agent_list = list(weigths_per_agent[cut_off_distance][interaction_type].values())
@@ -266,11 +276,14 @@ class ExperimentRunner():
         base_array = array[:array_indices[-1]]
         for ii in range(2,self.convergence_config[STEPS] + 2):
             compare_array = array[:array_indices[-ii]]
+            if len(base_array) < 2 or len(compare_array) < 2:
+                continue
+            
             res = stats.cramervonmises_2samp(base_array, compare_array)
             p_values.append(res.pvalue)
             base_array = compare_array
         
-        has_converged = True
+        has_converged = len(p_values) == self.convergence_config[STEPS]
         for p_value in p_values:
             if p_value < self.convergence_config[P_THRESHOLD]:
                 has_converged = False
@@ -294,7 +307,8 @@ def convert_sub_fields_to_list(data_dict):
     return data_dict_copy
     
 def get_scenario_files_from_dir(data_folder):
-    return sorted([entry for entry in data_folder.iterdir() if entry.is_file() and entry.suffix == BasicFileOutputManager.SCEN_EXTENSION])
+    scen_ext = f'.{BasicFileOutputManager.SCEN_EXTENSION}'
+    return sorted([entry for entry in data_folder.iterdir() if entry.is_file() and entry.suffix == scen_ext])
 
 def load_data(scen_filename):
     scen_data = BasicFileOutputManager.readScenarioDataFile(scen_filename)
@@ -302,7 +316,7 @@ def load_data(scen_filename):
     with open(conn_filename, 'r') as f:
         conn_data = json.load(f)
         
-    connections = {tuple(ID_list):conn_data[ID_list] for ID_list in conn_data['ID2IDtuple']}
+    connections = {tuple(ID_list):conn_data[ID] for ID, ID_list in conn_data['ID2IDtuple'].items()}
     ID_2_group_ID = {int(ID):group_ID for ID, group_ID in conn_data['ID2groupID'].items()}
     
     return scen_data.timeStep, get_seed_from_filename(scen_filename), connections, ID_2_group_ID
@@ -312,24 +326,35 @@ def get_seed_from_filename(filename):
 
 def compute_weighted_graph(cut_off_distances, connections, ID_2_group_ID, time_step):      
     weigths_per_connection = {cut_off_distance:{STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[]} for cut_off_distance in cut_off_distances}
-    weigths_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(float), CUSTOMER_CUSTOMER:defaultdict(float)} for cut_off_distance in cut_off_distances}
-    connections_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(int), CUSTOMER_CUSTOMER:defaultdict(int)} for cut_off_distance in cut_off_distances}
+    weigths_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(float), CUSTOMER_CUSTOMER:defaultdict(float), CUSTOMER_STAFF:defaultdict(float)} for cut_off_distance in cut_off_distances}
+    connections_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(int), CUSTOMER_CUSTOMER:defaultdict(int), CUSTOMER_STAFF:defaultdict(int)} for cut_off_distance in cut_off_distances}
 
     for IDtuple, value in connections.items():
         ID_0 = IDtuple[0]
         ID_1 = IDtuple[1]
-        if (ID_2_group_ID[ID_0] == STAFF_GROUP_NAME or ID_2_group_ID[ID_1] == STAFF_GROUP_NAME):
+        if ID_2_group_ID[ID_0] == STAFF_GROUP_NAME:
             interaction_type = STAFF_CUSTOMER
+            interaction_type_0 = STAFF_CUSTOMER
+            interaction_type_1 = CUSTOMER_STAFF           
+        elif ID_2_group_ID[ID_1] == STAFF_GROUP_NAME:
+            interaction_type = STAFF_CUSTOMER
+            interaction_type_0 = CUSTOMER_STAFF
+            interaction_type_1 = STAFF_CUSTOMER
         else:
             interaction_type = CUSTOMER_CUSTOMER
+            interaction_type_0 = CUSTOMER_CUSTOMER
+            interaction_type_1 = CUSTOMER_CUSTOMER
 
         valueArray = np.array(value)
         for cut_off_distance in cut_off_distances:
             connectionWeight = time_step*np.sum(valueArray[:,1] <= cut_off_distance)
+            if connectionWeight < 10:
+                continue
+            
             weigths_per_connection[cut_off_distance][interaction_type].append(connectionWeight)
-            weigths_per_agent[cut_off_distance][interaction_type][ID_0] += connectionWeight
-            weigths_per_agent[cut_off_distance][interaction_type][ID_1] += connectionWeight
-            connections_per_agent[cut_off_distance][interaction_type][ID_0] += 1
-            connections_per_agent[cut_off_distance][interaction_type][ID_1] += 1
+            weigths_per_agent[cut_off_distance][interaction_type_0][ID_0] += connectionWeight
+            weigths_per_agent[cut_off_distance][interaction_type_1][ID_1] += connectionWeight
+            connections_per_agent[cut_off_distance][interaction_type_0][ID_0] += 1
+            connections_per_agent[cut_off_distance][interaction_type_1][ID_1] += 1
 
     return weigths_per_connection, weigths_per_agent, connections_per_agent
