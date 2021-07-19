@@ -311,12 +311,22 @@ def continue_frospom_file(experiment_filename, combined_stats_filename):
                                         max_replications=experiment_config_data['max_replications'], 
                                         init_replications=experiment_config_data['init_replications'])
     
-    replication_start_nr = None
+    
+    for successful_replication in experiment_config_data['successful_replications']:
+        experimentRunner.experiment_info['successful_replication_count'] += 1
+        experimentRunner.experiment_info['successful_replications'].append(tuple(successful_replication))
+        if successful_replication[0] in experimentRunner.seeds_resevoir:
+            experimentRunner.seeds_resevoir.remove(successful_replication[0])
+     
+    # Remove from list       
+            
+    experimentRunner.seeds_resevoir # Remove those that have been used already
+    
+    replication_start_nr = experiment_config_data['successful_replication_count']
     
     experiment_data = np.load(combined_stats_filename)
     
     # Set all experiment runner fields
-    experimentRunner.seeds_resevoir # Remove those that have been used already
     experimentRunner.combined_data # Fill with successful experiments   
     experimentRunner.combined_data_indices # Fill with indices of the last 5 entries
   
