@@ -50,20 +50,22 @@ INDICES_FLD = 'indices'
 
 class ExperimentRunner():
     
-    def __init__(self, scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS, data_folder=None):
+    def __init__(self, scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS, connection_weigth_lower_bound=0, data_folder=None):
         self.scenario_filename = Path(scenario_filename)
         self.lrcm_filename = lrcm_filename
         self.convergence_config = convergence_config
         self.cut_off_distances = cut_off_distances
         self.max_replications = max_replications
         self.init_replications = init_replications
+        self.connection_weigth_lower_bound = connection_weigth_lower_bound
         self.data_folder = data_folder
         
         self.experiment_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_experiment.json')
         self.combined_stats_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_combined.stats')
             
         rng = np.random.default_rng()
-        self.seeds = rng.choice(np.arange(1,max_replications*2), max_replications, False).tolist()
+        self.seeds_resevoir = rng.choice(np.arange(1,max_replications*2), max_replications, False).tolist()
+        
         
         self.combined_data = {cut_off_distance:{STAFF_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES}, 
                                                 CUSTOMER_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES},
@@ -85,7 +87,7 @@ class ExperimentRunner():
             for interaction_type, cdf_types in interaction_types.items():
                 for cdf_type, array_name in cdf_types.items():
                     self.array_names_2_dict[array_name] = (cut_off_distance, interaction_type, cdf_type)
-        
+         
         self._init_experiment_file()
         pub.subscribe(self._update_time, TIMESTEP_MSG_ID)
             
@@ -97,10 +99,10 @@ class ExperimentRunner():
             'scenario_filename': str(self.scenario_filename),
             'lrcm_filename': str(self.lrcm_filename),
             'combined_stats_filename': str(self.combined_stats_filename),
-            'seeds': self.seeds,
             'max_replications': self.max_replications,
             'init_replications': self.init_replications,  
             'cut_off_distances': self.cut_off_distances,  
+            'connection_weigth_lower_bound': self.connection_weigth_lower_bound,
             'convergence_config': self.convergence_config,
             'successful_replication_count': 0,
             'failed_replication_count': 0,
@@ -115,12 +117,16 @@ class ExperimentRunner():
         with open(self.experiment_filename, 'x') as f:
             json.dump(self.experiment_info, f, indent=4)  
 
-    def run_experiment(self):
-        replication_nr = 0
+    def run_experiment(self, replication_start_nr=0):
+        replication_nr = replication_start_nr
+        
         last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
+        if replication_nr > last_convergence_check:
+            last_convergence_check =+ ceil((replication_nr - last_convergence_check)/self.convergence_config['steps'])*self.convergence_config['steps']            
+        
         failed_count = 0
         while replication_nr < self.max_replications:
-            seed = self.seeds[replication_nr]
+            seed = self.seeds_resevoir[replication_nr]
             print(f'Runnig replication {replication_nr} with seed = {seed}')            
             NOMAD.NOMAD_RNG = np.random.default_rng(seed)
             try:
@@ -164,8 +170,7 @@ class ExperimentRunner():
                     print(f'{"="*40}')
                     break 
                         
-            replication_nr += 1
-            
+            replication_nr += 1            
             
     def recreate_from_folder(self):
         # Get a scenario file from folder
@@ -190,7 +195,8 @@ class ExperimentRunner():
                 continue
             
             self._process_data(None, connections, ID_2_group_ID, time_step)
-                   
+            
+            self.experiment_info['combined_data_info'][INDICES_FLD] = convert_sub_fields_to_list(self.combined_data_indices)
             self.experiment_info['successful_replication_count'] += 1
             self.experiment_info['successful_replications'].append((seed, str(scen_filename)))
             print('done')
@@ -202,14 +208,15 @@ class ExperimentRunner():
                 last_convergence_check = replication_nr
                 failed_count = 0                
                 # save combined data 2 file
-                self._save_combined_data()
-                self.experiment_info['combined_data_info'][INDICES_FLD] = convert_sub_fields_to_list(self.combined_data_indices)
                 self.experiment_info['convergence_stats'].append((replication_nr, p_values, convert_sub_fields_to_list(self.combined_data_indices)))
                 
-                with open(self.experiment_filename, 'w') as f:
-                    json.dump(self.experiment_info, f, indent=4)    
-                    
                 print('done')
+            print('Saving data to file...', end='')    
+            self._save_combined_data()
+            with open(self.experiment_filename, 'w') as f:
+                json.dump(self.experiment_info, f, indent=4)    
+                
+            print('done')
             replication_nr += 1
     
     def _process_data(self, nomad_model, connections=None, ID_2_group_ID=None, time_step=None):
@@ -218,7 +225,7 @@ class ExperimentRunner():
             ID_2_group_ID = nomad_model.outputManager.ID2groupID
             time_step = nomad_model.timeInfo.timeStep
         
-        weigths_per_connection, weigths_per_agent, connections_per_agent = compute_weighted_graph(self.cut_off_distances, connections, ID_2_group_ID, time_step)
+        weigths_per_connection, weigths_per_agent, connections_per_agent = compute_weighted_graph(self.cut_off_distances, connections, ID_2_group_ID, time_step, self.connection_weigth_lower_bound)
 
         self._add_data_2_combined_data(weigths_per_connection, weigths_per_agent, connections_per_agent)
 
@@ -291,6 +298,33 @@ class ExperimentRunner():
             
         return p_values, has_converged
         
+def continue_frospom_file(experiment_filename, combined_stats_filename):
+    # Load experiment file
+    with open(experiment_filename, 'r') as f:
+        experiment_config_data = json.load(f)
+    
+    # Create experiment runner
+    experimentRunner = ExperimentRunner(experiment_config_data['scenario_filename'], 
+                                        experiment_config_data['lrcm_filename'], 
+                                        convergence_config=experiment_config_data['convergence_config'], 
+                                        cut_off_distances=experiment_config_data['cut_off_distances'],
+                                        max_replications=experiment_config_data['max_replications'], 
+                                        init_replications=experiment_config_data['init_replications'])
+    
+    replication_start_nr = None
+    
+    experiment_data = np.load(combined_stats_filename)
+    
+    # Set all experiment runner fields
+    experimentRunner.seeds_resevoir # Remove those that have been used already
+    experimentRunner.combined_data # Fill with successful experiments   
+    experimentRunner.combined_data_indices # Fill with indices of the last 5 entries
+  
+    # Init experiment file    
+    experimentRunner._init_experiment_file()
+    # Run experiment starting at the provided replication_nr
+    experimentRunner.run_experiment(replication_start_nr)
+        
 def get_array_field_name(cut_off_distance, interaction_type, cdf_type):
     return f'{cut_off_distance}_{interaction_type}_{cdf_type}'
 
@@ -324,7 +358,7 @@ def load_data(scen_filename):
 def get_seed_from_filename(filename):
     return int(filename.stem.split('_')[-1])
 
-def compute_weighted_graph(cut_off_distances, connections, ID_2_group_ID, time_step):      
+def compute_weighted_graph(cut_off_distances, connections, ID_2_group_ID, time_step, connection_weigth_lower_bound):      
     weigths_per_connection = {cut_off_distance:{STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[]} for cut_off_distance in cut_off_distances}
     weigths_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(float), CUSTOMER_CUSTOMER:defaultdict(float), CUSTOMER_STAFF:defaultdict(float)} for cut_off_distance in cut_off_distances}
     connections_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(int), CUSTOMER_CUSTOMER:defaultdict(int), CUSTOMER_STAFF:defaultdict(int)} for cut_off_distance in cut_off_distances}
@@ -348,7 +382,7 @@ def compute_weighted_graph(cut_off_distances, connections, ID_2_group_ID, time_s
         valueArray = np.array(value)
         for cut_off_distance in cut_off_distances:
             connectionWeight = time_step*np.sum(valueArray[:,1] <= cut_off_distance)
-            if connectionWeight < 10:
+            if connectionWeight < connection_weigth_lower_bound:
                 continue
             
             weigths_per_connection[cut_off_distance][interaction_type].append(connectionWeight)
