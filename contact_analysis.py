@@ -50,14 +50,13 @@ INDICES_FLD = 'indices'
 
 class ExperimentRunner():
     
-    def __init__(self, scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS, connection_weigth_lower_bound=0, data_folder=None):
+    def __init__(self, scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS, data_folder=None):
         self.scenario_filename = Path(scenario_filename)
         self.lrcm_filename = lrcm_filename
         self.convergence_config = convergence_config
         self.cut_off_distances = cut_off_distances
         self.max_replications = max_replications
         self.init_replications = init_replications
-        self.connection_weigth_lower_bound = connection_weigth_lower_bound
         self.data_folder = data_folder
         
         self.experiment_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_experiment.json')
@@ -102,7 +101,6 @@ class ExperimentRunner():
             'max_replications': self.max_replications,
             'init_replications': self.init_replications,  
             'cut_off_distances': self.cut_off_distances,  
-            'connection_weigth_lower_bound': self.connection_weigth_lower_bound,
             'convergence_config': self.convergence_config,
             'successful_replication_count': 0,
             'failed_replication_count': 0,
@@ -225,7 +223,7 @@ class ExperimentRunner():
             ID_2_group_ID = nomad_model.outputManager.ID2groupID
             time_step = nomad_model.timeInfo.timeStep
         
-        weigths_per_connection, weigths_per_agent, connections_per_agent = compute_weighted_graph(self.cut_off_distances, connections, ID_2_group_ID, time_step, self.connection_weigth_lower_bound)
+        weigths_per_connection, weigths_per_agent, connections_per_agent = compute_weighted_graph(self.cut_off_distances, connections, ID_2_group_ID, time_step)
 
         self._add_data_2_combined_data(weigths_per_connection, weigths_per_agent, connections_per_agent)
 
@@ -298,7 +296,7 @@ class ExperimentRunner():
             
         return p_values, has_converged
         
-def continue_frospom_file(experiment_filename, combined_stats_filename):
+def continue_from_file(experiment_filename, combined_stats_filename):
     # Load experiment file
     with open(experiment_filename, 'r') as f:
         experiment_config_data = json.load(f)
@@ -318,18 +316,31 @@ def continue_frospom_file(experiment_filename, combined_stats_filename):
         if successful_replication[0] in experimentRunner.seeds_resevoir:
             experimentRunner.seeds_resevoir.remove(successful_replication[0])
      
-    # Remove from list       
-            
-    experimentRunner.seeds_resevoir # Remove those that have been used already
+    for failed_replication_seed in experiment_config_data['failed_replications']:
+        experimentRunner.experiment_info['failed_replication_count'] += 1
+        experimentRunner.experiment_info['failed_replications'].append(failed_replication_seed)
+        if failed_replication_seed in experimentRunner.seeds_resevoir:
+            experimentRunner.seeds_resevoir.remove(failed_replication_seed)
+       
     
+    for convergence_stats in experiment_config_data['convergence_stats']:
+        experimentRunner.experiment_info['convergence_stats'].append(convergence_stats)
+       
+       
     replication_start_nr = experiment_config_data['successful_replication_count']
-    
     experiment_data = np.load(combined_stats_filename)
     
     # Set all experiment runner fields
-    experimentRunner.combined_data # Fill with successful experiments   
-    experimentRunner.combined_data_indices # Fill with indices of the last 5 entries
-  
+    experimentRunner.experiment_info['combined_data_info'][INDICES_FLD] = experiment_config_data['combined_data_info'][INDICES_FLD]
+    for dist, dist_data in experiment_config_data['combined_data_info'][INDICES_FLD]:
+        for interaction_type, interaction_data in dist_data.items():
+            for cdf_type, indices in interaction_data.items():
+                for index in indices:
+                    experimentRunner.combined_data_indices[dist][interaction_type][cdf_type].append(index)
+                
+                combined_label = experimentRunner.combined_data_info['arrayNames'][dist][interaction_type][cdf_type]
+                experimentRunner.combined_data[dist][interaction_type][cdf_type] = experiment_data[combined_label]
+ 
     # Init experiment file    
     experimentRunner._init_experiment_file()
     # Run experiment starting at the provided replication_nr
@@ -368,7 +379,7 @@ def load_data(scen_filename):
 def get_seed_from_filename(filename):
     return int(filename.stem.split('_')[-1])
 
-def compute_weighted_graph(cut_off_distances, connections, ID_2_group_ID, time_step, connection_weigth_lower_bound):      
+def compute_weighted_graph(cut_off_distances, connections, ID_2_group_ID, time_step):      
     weigths_per_connection = {cut_off_distance:{STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[]} for cut_off_distance in cut_off_distances}
     weigths_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(float), CUSTOMER_CUSTOMER:defaultdict(float), CUSTOMER_STAFF:defaultdict(float)} for cut_off_distance in cut_off_distances}
     connections_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(int), CUSTOMER_CUSTOMER:defaultdict(int), CUSTOMER_STAFF:defaultdict(int)} for cut_off_distance in cut_off_distances}
@@ -392,9 +403,7 @@ def compute_weighted_graph(cut_off_distances, connections, ID_2_group_ID, time_s
         valueArray = np.array(value)
         for cut_off_distance in cut_off_distances:
             connectionWeight = time_step*np.sum(valueArray[:,1] <= cut_off_distance)
-            if connectionWeight < connection_weigth_lower_bound:
-                continue
-            
+             
             weigths_per_connection[cut_off_distance][interaction_type].append(connectionWeight)
             weigths_per_agent[cut_off_distance][interaction_type_0][ID_0] += connectionWeight
             weigths_per_agent[cut_off_distance][interaction_type_1][ID_1] += connectionWeight
