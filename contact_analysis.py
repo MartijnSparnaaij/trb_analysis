@@ -112,8 +112,7 @@ class ExperimentRunner():
             'convergence_stats': [] # {replications:#rep, cvm_stats:{cdf_1:[pvalues]}}
             }
     
-        with open(self.experiment_filename, 'x') as f:
-            json.dump(self.experiment_info, f, indent=4)  
+        self._update_info_file(write_permission='x') 
 
     def run_experiment(self, replication_start_nr=0):
         replication_nr = replication_start_nr
@@ -158,8 +157,7 @@ class ExperimentRunner():
                 self.experiment_info['combined_data_info'][INDICES_FLD] = convert_sub_fields_to_list(self.combined_data_indices)
                 self.experiment_info['convergence_stats'].append((replication_nr, p_values, convert_sub_fields_to_list(self.combined_data_indices)))
                 
-                with open(self.experiment_filename, 'w') as f:
-                    json.dump(self.experiment_info, f, indent=4)    
+                self._update_info_file() 
                     
                 print('done')
                 if has_converged:
@@ -211,8 +209,7 @@ class ExperimentRunner():
                 print('done')
             print('Saving data to file...', end='')    
             self._save_combined_data()
-            with open(self.experiment_filename, 'w') as f:
-                json.dump(self.experiment_info, f, indent=4)    
+            self._update_info_file()  
                 
             print('done')
             replication_nr += 1
@@ -262,6 +259,10 @@ class ExperimentRunner():
         
         np.savez(self.combined_stats_filename, **arrays)
         
+    def _update_info_file(self, write_permission='w'):
+        with open(self.experiment_filename, write_permission) as f:
+            json.dump(self.experiment_info, f, indent=4)    
+        
     def _check_convergence(self):
         p_values = {}
         has_converged = True
@@ -302,7 +303,7 @@ def continue_from_file(experiment_filename, combined_stats_filename):
         experiment_config_data = json.load(f)
     
     # Create experiment runner
-    experimentRunner = ExperimentRunner(experiment_config_data['scenario_filename'], 
+    experiment_runner = ExperimentRunner(experiment_config_data['scenario_filename'], 
                                         experiment_config_data['lrcm_filename'], 
                                         convergence_config=experiment_config_data['convergence_config'], 
                                         cut_off_distances=experiment_config_data['cut_off_distances'],
@@ -311,40 +312,41 @@ def continue_from_file(experiment_filename, combined_stats_filename):
     
     
     for successful_replication in experiment_config_data['successful_replications']:
-        experimentRunner.experiment_info['successful_replication_count'] += 1
-        experimentRunner.experiment_info['successful_replications'].append(tuple(successful_replication))
-        if successful_replication[0] in experimentRunner.seeds_resevoir:
-            experimentRunner.seeds_resevoir.remove(successful_replication[0])
+        experiment_runner.experiment_info['successful_replication_count'] += 1
+        experiment_runner.experiment_info['successful_replications'].append(tuple(successful_replication))
+        if successful_replication[0] in experiment_runner.seeds_resevoir:
+            experiment_runner.seeds_resevoir.remove(successful_replication[0])
      
     for failed_replication_seed in experiment_config_data['failed_replications']:
-        experimentRunner.experiment_info['failed_replication_count'] += 1
-        experimentRunner.experiment_info['failed_replications'].append(failed_replication_seed)
-        if failed_replication_seed in experimentRunner.seeds_resevoir:
-            experimentRunner.seeds_resevoir.remove(failed_replication_seed)
+        experiment_runner.experiment_info['failed_replication_count'] += 1
+        experiment_runner.experiment_info['failed_replications'].append(failed_replication_seed)
+        if failed_replication_seed in experiment_runner.seeds_resevoir:
+            experiment_runner.seeds_resevoir.remove(failed_replication_seed)
        
     
     for convergence_stats in experiment_config_data['convergence_stats']:
-        experimentRunner.experiment_info['convergence_stats'].append(convergence_stats)
+        experiment_runner.experiment_info['convergence_stats'].append(convergence_stats)
        
        
     replication_start_nr = experiment_config_data['successful_replication_count']
     experiment_data = np.load(combined_stats_filename)
     
     # Set all experiment runner fields
-    experimentRunner.experiment_info['combined_data_info'][INDICES_FLD] = experiment_config_data['combined_data_info'][INDICES_FLD]
-    for dist, dist_data in experiment_config_data['combined_data_info'][INDICES_FLD]:
+    experiment_runner.experiment_info['combined_data_info'][INDICES_FLD] = experiment_config_data['combined_data_info'][INDICES_FLD]
+    for dist, dist_data in experiment_config_data['combined_data_info'][INDICES_FLD].items():
+        dist = float(dist)
         for interaction_type, interaction_data in dist_data.items():
             for cdf_type, indices in interaction_data.items():
                 for index in indices:
-                    experimentRunner.combined_data_indices[dist][interaction_type][cdf_type].append(index)
+                    experiment_runner.combined_data_indices[dist][interaction_type][cdf_type].append(index)
                 
-                combined_label = experimentRunner.combined_data_info['arrayNames'][dist][interaction_type][cdf_type]
-                experimentRunner.combined_data[dist][interaction_type][cdf_type] = experiment_data[combined_label]
+                combined_label = experiment_runner.array_names[dist][interaction_type][cdf_type]
+                experiment_runner.combined_data[dist][interaction_type][cdf_type] = experiment_data[combined_label]
  
     # Init experiment file    
-    experimentRunner._init_experiment_file()
+    experiment_runner._update_info_file()
     # Run experiment starting at the provided replication_nr
-    experimentRunner.run_experiment(replication_start_nr)
+    experiment_runner.run_experiment(replication_start_nr)
         
 def get_array_field_name(cut_off_distance, interaction_type, cdf_type):
     return f'{cut_off_distance}_{interaction_type}_{cdf_type}'
