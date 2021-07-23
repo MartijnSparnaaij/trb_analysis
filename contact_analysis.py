@@ -303,8 +303,8 @@ def continue_from_file(experiment_filename, combined_stats_filename):
         experiment_config_data = json.load(f)
     
     # Create experiment runner
-    experiment_runner = ExperimentRunner(experiment_config_data['scenario_filename'], 
-                                        experiment_config_data['lrcm_filename'], 
+    experiment_runner = ExperimentRunner(Path(experiment_config_data['scenario_filename']), 
+                                        Path(experiment_config_data['lrcm_filename']), 
                                         convergence_config=experiment_config_data['convergence_config'], 
                                         cut_off_distances=experiment_config_data['cut_off_distances'],
                                         max_replications=experiment_config_data['max_replications'], 
