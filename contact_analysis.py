@@ -115,16 +115,16 @@ class ExperimentRunner():
         self._update_info_file(write_permission='x') 
 
     def run_experiment(self, replication_start_nr=0):
-        replication_nr = replication_start_nr
+        self.replication_nr = replication_start_nr
         
-        last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
-        if replication_nr > last_convergence_check:
-            last_convergence_check =+ ceil((replication_nr - last_convergence_check)/self.convergence_config['steps'])*self.convergence_config['steps']            
+        self.last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
+        if self.replication_nr > self.last_convergence_check:
+            self.last_convergence_check =+ ceil((self.replication_nr - self.last_convergence_check)/self.convergence_config['steps'])*self.convergence_config['steps']            
         
-        failed_count = 0
-        while replication_nr < self.max_replications:
-            seed = self.seeds_resevoir[replication_nr]
-            print(f'Runnig replication {replication_nr} with seed = {seed}')            
+        self.failed_count = 0
+        while self.replication_nr < self.max_replications:
+            seed = self.seeds_resevoir[self.replication_nr]
+            print(f'Running replication {self.replication_nr} with seed = {seed}')            
             NOMAD.NOMAD_RNG = np.random.default_rng(seed)
             try:
                 nomad_model = onlyCreate(self.scenario_filename, lrcmLoadFile=self.lrcm_filename, seed=seed)
@@ -132,41 +132,31 @@ class ExperimentRunner():
                 nomad_model.start()
             except:
                 del nomad_model
-                replication_nr += 1   
-                failed_count += 1
-                self.experiment_info['failed_replication_count'] += 1
-                self.experiment_info['failed_replications'].append(seed)                              
+                self._update_info_after_failed(seed)
                 continue
             print('\nSimulation done. Processing data... ', end='')
             # Process output accessing it directly via the nomad_model instance
             self._process_data(nomad_model)
                    
-            self.experiment_info['successful_replication_count'] += 1
-            self.experiment_info['successful_replications'].append((seed, str(nomad_model.outputManager.scenarioFilename)))
+            self._update_info_after_success(seed, str(nomad_model.outputManager.scenarioFilename))
             del nomad_model     
             print('done')
-            if replication_nr - failed_count == last_convergence_check + self.convergence_config['steps']:
+            if self.replication_nr - self.failed_count == self.last_convergence_check + self.convergence_config['steps']:
                 # Check convergence
                 print('Checking convergence... ', end='')
-                p_values, has_converged = self._check_convergence() 
-                
-                last_convergence_check = replication_nr
-                failed_count = 0                
-                # save combined data 2 file
-                self._save_combined_data()
-                self.experiment_info['combined_data_info'][INDICES_FLD] = convert_sub_fields_to_list(self.combined_data_indices)
-                self.experiment_info['convergence_stats'].append((replication_nr, p_values, convert_sub_fields_to_list(self.combined_data_indices)))
-                
-                self._update_info_file() 
+                p_values, has_converged = self._check_convergence()                 
+                self._update_info_after_convergence_check(p_values)
                     
                 print('done')
-                if has_converged:
+                if has_converged:                    
+                    self._save_data_2_file()
                     print(f'{"="*40}\n')
                     print(f'FINISHED!!!!!!!!!!\n')
                     print(f'{"="*40}')
                     break 
-                        
-            replication_nr += 1            
+            
+            self._save_data_2_file()                           
+            self.replication_nr += 1            
             
     def recreate_from_folder(self):
         # Get a scenario file from folder
@@ -174,45 +164,56 @@ class ExperimentRunner():
         # Get all conncetion files 
         # Process all files
         scen_filenames = get_scenario_files_from_dir(self.data_folder)
-        replication_nr = 0
-        last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
-        failed_count = 0
+        self.replication_nr = 0
+        self.last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
+        self.failed_count = 0
         print(len(scen_filenames))
     
         for scen_filename in scen_filenames:
             try:
-                print(f'{replication_nr:04d} - {scen_filename} ...', end='')
+                print(f'{self.replication_nr:04d} - {scen_filename} ...', end='')
                 time_step, seed, connections, ID_2_group_ID = load_data(scen_filename)
             except:
-                replication_nr += 1   
-                failed_count += 1
-                self.experiment_info['failed_replication_count'] += 1
-                self.experiment_info['failed_replications'].append(seed)                              
+                self._update_info_after_failed(seed)                           
                 continue
             
             self._process_data(None, connections, ID_2_group_ID, time_step)
             
-            self.experiment_info['combined_data_info'][INDICES_FLD] = convert_sub_fields_to_list(self.combined_data_indices)
-            self.experiment_info['successful_replication_count'] += 1
-            self.experiment_info['successful_replications'].append((seed, str(scen_filename)))
+            self._update_info_after_success(seed, scen_filename)
             print('done')
-            if replication_nr == last_convergence_check + self.convergence_config['steps']:
+            if self.replication_nr == self.last_convergence_check + self.convergence_config['steps']:
                 # Check convergence
                 print('Checking convergence... ', end='')
                 p_values, _ = self._check_convergence() 
+                self._update_info_after_convergence_check(p_values)
+                print('done')                
+
+            self._save_data_2_file()
+            self.replication_nr += 1
+    
+    def _update_info_after_failed(self, seed):
+        self.replication_nr += 1   
+        self.failed_count += 1
+        self.experiment_info['failed_replication_count'] += 1
+        self.experiment_info['failed_replications'].append(seed)
+        self._update_info_file()
                 
-                last_convergence_check = replication_nr
-                failed_count = 0                
-                # save combined data 2 file
-                self.experiment_info['convergence_stats'].append((replication_nr, p_values, convert_sub_fields_to_list(self.combined_data_indices)))
+    def _update_info_after_success(self, seed, scen_filename):
+        self.experiment_info['combined_data_info'][INDICES_FLD] = convert_sub_fields_to_list(self.combined_data_indices)
+        self.experiment_info['successful_replication_count'] += 1
+        self.experiment_info['successful_replications'].append((seed, str(scen_filename)))
                 
-                print('done')
-            print('Saving data to file...', end='')    
-            self._save_combined_data()
-            self._update_info_file()  
-                
-            print('done')
-            replication_nr += 1
+    def _update_info_after_convergence_check(self, p_values):
+        self.last_convergence_check = self.replication_nr
+        self.failed_count = 0                
+        # save combined data 2 file
+        self.experiment_info['convergence_stats'].append((self.replication_nr, p_values, convert_sub_fields_to_list(self.combined_data_indices)))
+ 
+    def _save_data_2_file(self):
+        print('Saving data to file...', end='')    
+        self._save_combined_data()
+        self._update_info_file()
+        print('done')
     
     def _process_data(self, nomad_model, connections=None, ID_2_group_ID=None, time_step=None):
         if nomad_model is not None:
