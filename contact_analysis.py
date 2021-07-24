@@ -8,6 +8,7 @@ from copy import deepcopy
 import json
 from math import ceil
 from pathlib import Path
+import traceback
 
 from pubsub import pub
 from scipy import stats
@@ -131,6 +132,9 @@ class ExperimentRunner():
                 print('='*ceil(nomad_model.duration/SEND_TIME_MSG_INTERVAL_SEC))
                 nomad_model.start()
             except:
+                print('FAILED')
+                traceback.print_exc()
+                print('')
                 del nomad_model
                 self._update_info_after_failed(seed)
                 continue
@@ -174,7 +178,10 @@ class ExperimentRunner():
                 print(f'{self.replication_nr:04d} - {scen_filename} ...', end='')
                 time_step, seed, connections, ID_2_group_ID = load_data(scen_filename)
             except:
-                self._update_info_after_failed(seed)                           
+                print('FAILED')
+                traceback.print_exc()
+                print('')
+                self._update_info_after_failed(get_seed_from_filename(scen_filename))                           
                 continue
             
             self._process_data(None, connections, ID_2_group_ID, time_step)
@@ -196,7 +203,7 @@ class ExperimentRunner():
         self.failed_count += 1
         self.experiment_info['failed_replication_count'] += 1
         self.experiment_info['failed_replications'].append(seed)
-        self._update_info_file()
+        self._update_info_file()        
                 
     def _update_info_after_success(self, seed, scen_filename):
         self.experiment_info['combined_data_info'][INDICES_FLD] = convert_sub_fields_to_list(self.combined_data_indices)
