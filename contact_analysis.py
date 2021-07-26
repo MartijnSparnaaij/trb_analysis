@@ -394,10 +394,13 @@ def load_data(scen_filename):
     return scen_data.timeStep, get_seed_from_filename(scen_filename), connections, ID_2_group_ID
 
 def convert_conn_file(conn_filename):
-     with open(conn_filename, 'r') as f:
-        conn_data = json.load(f)
-        
-     np.savez(conn_filename, **conn_data)
+    try: 
+        with open(conn_filename, 'r') as f:
+            conn_data = json.load(f)
+    except:
+        return
+    
+    np.savez(conn_filename, **conn_data)
         
 def get_seed_from_filename(filename):
     return int(filename.stem.split('_')[-1])
