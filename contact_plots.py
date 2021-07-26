@@ -68,7 +68,40 @@ def plot_convergence(exp_info_filename):
     
     ax.grid()
     ax.axhline(0.95, linestyle='--', linewidth=2, color='k')
-    leg = plt.legend()
+    leg = plt.legend(loc='upper center', ncol=3)
+    leg.set_draggable(True)
+    plt.show()
+    
+def plot_cdf_weights_at_probabilities(weights_at_probabilities, array_names_dict):
+    colors = ('tab:red', 'tab:blue', 'tab:green', 'tab:orange', 'tab:purple', 'tab:olive', 'tab:cyan', 'tab:brown')
+        
+    ax = plt.axes()
+    
+    for label, data in weights_at_probabilities.items():
+        if array_names_dict[label][0] == 1.0:
+            line_style = '-' 
+        elif array_names_dict[label][0] == 1.5:
+            line_style = '--' 
+        elif array_names_dict[label][0] == 2.0:
+            line_style = ':' 
+        if array_names_dict[label][1] == "staff_customer":
+            color_ind_0 = 0
+        elif array_names_dict[label][1] == "customer_customer":
+            color_ind_0 = 3
+        else:
+            color_ind_0 = 6
+        
+        if array_names_dict[label][2] == "weight_over_agents":
+            color_ind_1 = 0
+        elif array_names_dict[label][2] == "contacts_over_agents":
+            color_ind_1 = 1
+        else:
+            color_ind_1 = 2
+    
+        ax.plot(data[0], data[1], label=label, color=colors[color_ind_0 + color_ind_1], linestyle=line_style)
+    
+    ax.grid()
+    leg = plt.legend(loc='upper center', ncol=3)
     leg.set_draggable(True)
     plt.show()
     
@@ -79,7 +112,7 @@ def get_cdf_weights_at_probabilities(contact_data, step_size=0.05):
     
     for probability in probabilities:
         indices = np.argwhere(y <= probability)
-        weights_at_probabilities[probability] = x[indices[-1]]
+        weights_at_probabilities[probability] = x[indices[-1][0]]
         
     return weights_at_probabilities  
     
