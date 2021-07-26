@@ -72,3 +72,15 @@ def plot_convergence(exp_info_filename):
     leg.set_draggable(True)
     plt.show()
     
+def get_cdf_weights_at_probabilities(contact_data, step_size=0.05):
+    x, y = get_cdf_of_data(contact_data)
+    probabilities = np.arange(step_size, 1.0+step_size, step_size)
+    weights_at_probabilities = {}
+    
+    for probability in probabilities:
+        indices = np.argwhere(y <= probability)
+        weights_at_probabilities[probability] = x[indices[-1]]
+        
+    return weights_at_probabilities  
+    
+    
