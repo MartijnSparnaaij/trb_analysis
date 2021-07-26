@@ -378,14 +378,27 @@ def get_scenario_files_from_dir(data_folder):
 def load_data(scen_filename):
     scen_data = BasicFileOutputManager.readScenarioDataFile(scen_filename)
     conn_filename = scen_filename.parent.joinpath(scen_data.connFile)
-    with open(conn_filename, 'r') as f:
-        conn_data = json.load(f)
-        
-    connections = {tuple(ID_list):conn_data[ID] for ID, ID_list in conn_data['ID2IDtuple'].items()}
-    ID_2_group_ID = {int(ID):group_ID for ID, group_ID in conn_data['ID2groupID'].items()}
+    try:
+        with open(conn_filename, 'r') as f:
+            conn_data = json.load(f)
+        ID2IDtuple = conn_data['ID2IDtuple']
+        ID2groupID = conn_data['ID2groupID']
+    except FileNotFoundError:
+        conn_data = np.load(f'{str(conn_filename)}.npz', allow_pickle=True)
+        ID2IDtuple['ID2IDtuple'].item()
+        ID2groupID = conn_data['ID2groupID'].item()
+            
+    connections = {tuple(ID_list):conn_data[ID] for ID, ID_list in ID2IDtuple.items()}
+    ID_2_group_ID = {int(ID):group_ID for ID, group_ID in ID2groupID.items()}
     
     return scen_data.timeStep, get_seed_from_filename(scen_filename), connections, ID_2_group_ID
 
+def convert_conn_file(conn_filename):
+     with open(conn_filename, 'r') as f:
+        conn_data = json.load(f)
+        
+     np.savez(conn_filename, **conn_data)
+        
 def get_seed_from_filename(filename):
     return int(filename.stem.split('_')[-1])
 
