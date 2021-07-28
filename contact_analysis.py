@@ -422,6 +422,8 @@ def compute_weighted_graph(cut_off_distances, connections, ID_2_group_ID, time_s
         valueArray = np.array(value)
         for cut_off_distance in cut_off_distances:
             connection_weight = calc_connection_weight(time_step, valueArray, cut_off_distance)
+            if connection_weight == 0:
+                continue
              
             weigths_per_connection[cut_off_distance][interaction_type].append(connection_weight)
             weigths_per_agent[cut_off_distance][interaction_type_0][ID_0] += connection_weight
