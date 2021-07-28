@@ -41,13 +41,16 @@ def plot_convergence(exp_info_filename):
                 y_arrays[key].append(p_value)
                 step_ind += 1
     
-    ax = plt.axes()
+    fig, (ax, legend_ax) = plt.subplots(2, 1, gridspec_kw={'hspace': 0.05, 'height_ratios': [3.5, 1]})
+    
+    line_handles = []
+    line_labels = []
     
     for label, x in x_arrays.items():
         if array_names_dict[label][0] == 1.0:
-            line_style = '-' 
-        elif array_names_dict[label][0] == 1.5:
             line_style = '--' 
+        elif array_names_dict[label][0] == 1.5:
+            line_style = '-' 
         elif array_names_dict[label][0] == 2.0:
             line_style = ':' 
         if array_names_dict[label][1] == "staff_customer":
@@ -64,11 +67,15 @@ def plot_convergence(exp_info_filename):
         else:
             color_ind_1 = 2
     
-        ax.plot(x, y_arrays[label], label=label, color=colors[color_ind_0 + color_ind_1], linestyle=line_style)
+        line_handle = ax.plot(x, y_arrays[label], label=label, color=colors[color_ind_0 + color_ind_1], linestyle=line_style)
+        line_handles.append(line_handle[0])
+        line_labels.append(label)
     
+    ax.set_title(exp_info_filename.stem)
     ax.grid()
     ax.axhline(0.95, linestyle='--', linewidth=2, color='k')
-    leg = plt.legend(loc='upper center', ncol=3)
+    leg = legend_ax.legend(line_handles, line_labels, loc='upper center', ncol=3)
+    legend_ax.axis('off')
     leg.set_draggable(True)
     plt.show()
     
