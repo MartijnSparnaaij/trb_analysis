@@ -17,10 +17,8 @@ import NOMAD
 from NOMAD.activity_scheduler import STAFF_GROUP_NAME
 from NOMAD.constants import TIMESTEP_MSG_ID, SEND_TIME_MSG_INTERVAL_SEC
 from NOMAD.nomad_model import onlyCreate
-import numpy as np
 from NOMAD.output_manager import BasicFileOutputManager
-
-
+import numpy as np
 
 
 MAX_REPLICATIONS = 5000
@@ -376,6 +374,10 @@ def get_scenario_files_from_dir(data_folder):
     return sorted([entry for entry in data_folder.iterdir() if entry.is_file() and entry.suffix == scen_ext])
 
 def load_data(scen_filename):
+    def get_data_with_ID(ID, conv2str):
+        if conv2str:
+            ID = str(ID)
+        return conn_data[ID]
     scen_data = BasicFileOutputManager.readScenarioDataFile(scen_filename)
     conn_filename = scen_filename.parent.joinpath(scen_data.connFile)
     try:
@@ -383,12 +385,14 @@ def load_data(scen_filename):
             conn_data = json.load(f)
         ID2IDtuple = conn_data['ID2IDtuple']
         ID2groupID = conn_data['ID2groupID']
+        conv2str = False
     except FileNotFoundError:
         conn_data = np.load(f'{str(conn_filename)}.npz', allow_pickle=True)
-        ID2IDtuple['ID2IDtuple'].item()
+        ID2IDtuple = conn_data['ID2IDtuple'].item()
         ID2groupID = conn_data['ID2groupID'].item()
+        conv2str = True
             
-    connections = {tuple(ID_list):conn_data[ID] for ID, ID_list in ID2IDtuple.items()}
+    connections = {tuple(ID_list):get_data_with_ID(ID, conv2str) for ID, ID_list in ID2IDtuple.items()}
     ID_2_group_ID = {int(ID):group_ID for ID, group_ID in ID2groupID.items()}
     
     return scen_data.timeStep, get_seed_from_filename(scen_filename), connections, ID_2_group_ID
@@ -410,30 +414,86 @@ def compute_weighted_graph(cut_off_distances, connections, ID_2_group_ID, time_s
     weigths_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(float), CUSTOMER_CUSTOMER:defaultdict(float), CUSTOMER_STAFF:defaultdict(float)} for cut_off_distance in cut_off_distances}
     connections_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(int), CUSTOMER_CUSTOMER:defaultdict(int), CUSTOMER_STAFF:defaultdict(int)} for cut_off_distance in cut_off_distances}
 
-    for IDtuple, value in connections.items():
-        ID_0 = IDtuple[0]
-        ID_1 = IDtuple[1]
-        if ID_2_group_ID[ID_0] == STAFF_GROUP_NAME:
-            interaction_type = STAFF_CUSTOMER
-            interaction_type_0 = STAFF_CUSTOMER
-            interaction_type_1 = CUSTOMER_STAFF           
-        elif ID_2_group_ID[ID_1] == STAFF_GROUP_NAME:
-            interaction_type = STAFF_CUSTOMER
-            interaction_type_0 = CUSTOMER_STAFF
-            interaction_type_1 = STAFF_CUSTOMER
-        else:
-            interaction_type = CUSTOMER_CUSTOMER
-            interaction_type_0 = CUSTOMER_CUSTOMER
-            interaction_type_1 = CUSTOMER_CUSTOMER
+    for ID_tuple, value in connections.items():
+        ID_0 = ID_tuple[0]
+        ID_1 = ID_tuple[1]
+        interaction_type, interaction_type_0, interaction_type_1 = get_interaction_type_from_IDs(ID_2_group_ID, ID_0, ID_1)
 
         valueArray = np.array(value)
         for cut_off_distance in cut_off_distances:
-            connectionWeight = time_step*np.sum(valueArray[:,1] <= cut_off_distance)
+            connection_weight = calc_connection_weight(time_step, valueArray, cut_off_distance)
              
-            weigths_per_connection[cut_off_distance][interaction_type].append(connectionWeight)
-            weigths_per_agent[cut_off_distance][interaction_type_0][ID_0] += connectionWeight
-            weigths_per_agent[cut_off_distance][interaction_type_1][ID_1] += connectionWeight
+            weigths_per_connection[cut_off_distance][interaction_type].append(connection_weight)
+            weigths_per_agent[cut_off_distance][interaction_type_0][ID_0] += connection_weight
+            weigths_per_agent[cut_off_distance][interaction_type_1][ID_1] += connection_weight
             connections_per_agent[cut_off_distance][interaction_type_0][ID_0] += 1
             connections_per_agent[cut_off_distance][interaction_type_1][ID_1] += 1
 
     return weigths_per_connection, weigths_per_agent, connections_per_agent
+
+def calc_connection_weight(time_step, valueArray, cut_off_distance):
+    return time_step*np.sum(valueArray[:,1] <= cut_off_distance)
+
+def get_interaction_type_from_IDs(ID_2_group_ID, ID_0, ID_1):
+    if ID_2_group_ID[ID_0] == STAFF_GROUP_NAME:
+        interaction_type = STAFF_CUSTOMER
+        interaction_type_0 = STAFF_CUSTOMER
+        interaction_type_1 = CUSTOMER_STAFF           
+    elif ID_2_group_ID[ID_1] == STAFF_GROUP_NAME:
+        interaction_type = STAFF_CUSTOMER
+        interaction_type_0 = CUSTOMER_STAFF
+        interaction_type_1 = STAFF_CUSTOMER
+    else:
+        interaction_type = CUSTOMER_CUSTOMER
+        interaction_type_0 = CUSTOMER_CUSTOMER
+        interaction_type_1 = CUSTOMER_CUSTOMER
+        
+    return interaction_type, interaction_type_0, interaction_type_1
+        
+def get_contacts_longer_than_value(data_folder, boundary_value, cut_off_distances, interaction_type):
+    scen_filenames = get_scenario_files_from_dir(data_folder)
+    print(len(scen_filenames))
+    for scen_filename in scen_filenames:
+        try:
+            time_step, _, connections, ID_2_group_ID = load_data(scen_filename)
+        except:
+            traceback.print_exc()
+            print(f'FAILED - {scen_filename.name}')
+            continue
+        contacts_longer_than_value = []
+        for ID_tuple, value in connections.items():
+            interaction_type_ID_tuple, _, _ = get_interaction_type_from_IDs(ID_2_group_ID, ID_tuple[0], ID_tuple[1])
+            if interaction_type_ID_tuple != interaction_type:
+                continue
+            value_array = np.array(value)
+            for cut_off_distance in cut_off_distances:
+                connection_weight = calc_connection_weight(time_step, value_array, cut_off_distance)
+                if connection_weight > boundary_value:
+                    contacts_longer_than_value.append((ID_tuple, cut_off_distance, connection_weight, value_array))
+                    #print(f'{scen_filename.name} - {cut_off_distance} - {ID_tuple} = {connection_weight}')
+                    
+        if len(contacts_longer_than_value) == 0:
+            print('.')
+            continue
+        
+        scen_data = BasicFileOutputManager.readScenarioDataFile(scen_filename)
+        desc_filename = scen_filename.parent.joinpath(scen_data.descFile)
+        pedestrians = BasicFileOutputManager.readDescriptionDataFile(desc_filename)
+        print(scen_filename.name)
+        
+        for contact_longer_than_value in contacts_longer_than_value:
+            ID_tuple = contact_longer_than_value[0]
+            value_array = contact_longer_than_value[3]
+            ped_0_data = pedestrians[ID_tuple[0]]
+            ped_1_data = pedestrians[ID_tuple[1]]
+            #if ped_0_data.activityLog[0].destinationID in ("chair40_eetstoel", "chair21_eetstoel") or \
+            #    ped_1_data.activityLog[0].destinationID in ("chair40_eetstoel", "chair21_eetstoel"):
+            #    continue
+            
+            print(f'{ID_tuple} - ({ped_0_data.activityLog[0].destinationID}, {ped_1_data.activityLog[0].destinationID}): {value_array[0,0]:.2f} - {value_array[-1,0]:.2f} - {contact_longer_than_value[2]} - {contact_longer_than_value[1]}')
+            #for ii in range(len(value_array)):
+            #    print(f'{value_array[ii,0]:.2f} - {value_array[ii,1]:.2f}')
+        
+        print('')
+    
+    
