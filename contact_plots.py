@@ -6,6 +6,9 @@ Created on 13 Jul 2021
 
 import json
 
+from mpl_toolkits.axes_grid1.axes_divider import Divider
+import mpl_toolkits.axes_grid1.axes_size as Size
+
 import matplotlib.pyplot as plt
 import numpy as np
 
@@ -123,4 +126,14 @@ def get_cdf_weights_at_probabilities(contact_data, step_size=0.05):
         
     return weights_at_probabilities  
     
+def create_cfd_weights_paper_plot(figure_props={}):
+    fig = plt.figure(**figure_props)
+    fig.canvas.set_window_title('')
     
+    main_ax = fig.add_axes((0,0,1,1), 'main_ax')
+    divider = Divider(fig, (0,0,1,1), [Size.Fixed(0.5), Size.Scaled(1), Size.Fixed(0.5)], [Size.Fixed(0.5), Size.Scaled(1), Size.Fixed(0.5)], aspect=False)
+    main_ax.set_axes_locator(divider.new_locator(nx=1,ny=1))
+    
+    plt.draw()
+    
+
