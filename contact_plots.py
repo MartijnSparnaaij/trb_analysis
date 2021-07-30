@@ -126,14 +126,122 @@ def get_cdf_weights_at_probabilities(contact_data, step_size=0.05):
         
     return weights_at_probabilities  
     
-def create_cfd_weights_paper_plot(figure_props={}):
+def create_cfd_weights_paper_plot(cdf_data, first_inset_cdf_data, second_inset_cdf_data, figure_props={}):
     fig = plt.figure(**figure_props)
-    fig.canvas.set_window_title('')
     
+    
+    divider = Divider(fig, (0,0,1,1), [Size.Fixed(0.6), Size.Scaled(1), Size.Fixed(0.3)], [Size.Fixed(0.5), Size.Scaled(1), Size.Fixed(0.08), Size.Fixed(0.3), Size.Fixed(0.05)], aspect=False)
     main_ax = fig.add_axes((0,0,1,1), 'main_ax')
-    divider = Divider(fig, (0,0,1,1), [Size.Fixed(0.5), Size.Scaled(1), Size.Fixed(0.5)], [Size.Fixed(0.5), Size.Scaled(1), Size.Fixed(0.5)], aspect=False)
     main_ax.set_axes_locator(divider.new_locator(nx=1,ny=1))
     
+    legend_ax = fig.add_axes((0,0,1,1), 'legend_ax')
+    legend_ax.set_axes_locator(divider.new_locator(nx=1,ny=3))
+    legend_ax.set_axis_off()
+        
+    colors = ('tab:red', 'tab:blue', 'tab:green', 'tab:orange')
+    line_widths = (4,3,2,1)
+    
+    line_ind = 0
+    line_handles = []
+    line_labels = []
+    for label, plot_data in cdf_data.items():
+        x = plot_data['x']/60 # Converge from seconds to minutes
+        y = plot_data['y']
+        line_handle = main_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], label=f'{label}')
+        line_handles.append(line_handle[0])
+        line_labels.append(label)
+        line_ind += 1 
+    
+    main_ax.set_xlabel('Exposure time [minutes]', fontsize=8)
+    main_ax.set_ylabel('Probability [-]', fontsize=8)
+    main_ax.tick_params(labelsize=8)
+    main_ax.grid()
+    
+    inset_ax_width = .3
+    inset_ax_height = .5
+    inset_ax_y = 0.2
+    
+    
+    back_ax = fig.add_axes((.17, inset_ax_y-0.05,inset_ax_width*2+0.15,inset_ax_height+0.1), 'back_ax')
+    back_ax.get_xaxis().set_visible(False)
+    back_ax.get_yaxis().set_visible(False)
+    back_ax.spines['bottom'].set_color('w')
+    back_ax.spines['top'].set_color('w') 
+    back_ax.spines['right'].set_color('w')
+    back_ax.spines['left'].set_color('w')
+    back_ax.set_alpha(0.6)
+    
+    first_inset_ax = fig.add_axes((.22, inset_ax_y,inset_ax_width,inset_ax_height), 'first_inset_ax')
+    second_inset_ax = fig.add_axes((.62, inset_ax_y,inset_ax_width,inset_ax_height), 'second_inset_ax_inset_ax')
+    
+    line_ind = 0
+    for label, plot_data in first_inset_cdf_data.items():
+        x = plot_data['x']/60 # Converge from seconds to minutes
+        y = plot_data['y']
+        first_inset_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], label=f'{label}')
+        line_ind += 1 
+    
+    first_inset_ax.grid()
+    first_inset_ax.set_title('Customer-Customer', fontsize=8)
+    first_inset_ax.tick_params(labelsize=8)
+    
+    line_ind = 0
+    for label, plot_data in second_inset_cdf_data.items():
+        x = plot_data['x']/60 # Converge from seconds to minutes
+        y = plot_data['y']
+        second_inset_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], label=f'{label}')
+        line_ind += 1 
+    
+    second_inset_ax.grid()
+    second_inset_ax.set_title('Staff-Customer', fontsize=8)
+    second_inset_ax.tick_params(labelsize=8)
+    
+    legend_ax.legend(line_handles, line_labels, loc='upper center', ncol=4, fontsize=8)
     plt.draw()
     
 
+def create_cfd_contacts_paper_plot(cdf_data, figure_props={}):
+    fig = plt.figure(**figure_props)
+    
+    
+    
+    divider = Divider(fig, (0,0,1,1), [Size.Fixed(0.6), Size.Scaled(1), Size.Fixed(0.1), Size.Scaled(1), Size.Fixed(0.1), Size.Scaled(1), Size.Fixed(0.1)], [Size.Fixed(0.5), Size.Scaled(1), Size.Fixed(0.21), Size.Fixed(0.3), Size.Fixed(0.02)], aspect=False)
+    
+    legend_ax = fig.add_axes((0,0,1,1), 'legend_ax')
+    legend_ax.set_axes_locator(divider.new_locator(nx=1,ny=3, nx1=6))
+    legend_ax.set_axis_off()
+        
+    colors = ('tab:red', 'tab:blue', 'tab:green', 'tab:orange')
+    line_widths = (4,3,2,1)
+
+    axes = []
+    line_handles = []
+    line_labels = []
+    ax_ind = 0
+    for ax_label, ax_data in cdf_data.items():
+        draw_ax = fig.add_axes((0,0,1,1), f'main_ax_{ax_ind}')
+        draw_ax.set_axes_locator(divider.new_locator(nx=1+ax_ind*2,ny=1))
+        line_ind = 0
+        for label, plot_data in ax_data.items():
+            x = plot_data['x']
+            y = plot_data['y']
+            line_handle = draw_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], label=f'{label}')
+            if ax_ind == 0:
+                line_handles.append(line_handle[0])
+                line_labels.append(label)
+            line_ind += 1 
+        
+        draw_ax.set_xlabel('# contacts [-]', fontsize=8)
+        if ax_ind == 0:
+            draw_ax.set_ylabel('Probability [-]', fontsize=8)
+        else:
+            draw_ax.set_yticklabels([])
+        
+        draw_ax.set_title(ax_label, fontsize=8)
+        draw_ax.tick_params(labelsize=8)
+        draw_ax.grid()
+        ax_ind += 1
+        
+    legend_ax.legend(line_handles, line_labels, loc='upper center', ncol=4, fontsize=8)
+        
+    plt.draw()
