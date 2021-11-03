@@ -27,7 +27,7 @@ CONSECUTIVE_STEPS = 5
 P_THRESHOLD_VALUE = 0.95
 STEPS = 'steps'
 P_THRESHOLD = 'p_threshold'
-CONVERGENCE_CONFIG = {STEPS:CONSECUTIVE_STEPS, '':P_THRESHOLD_VALUE}
+CONVERGENCE_CONFIG = {STEPS:CONSECUTIVE_STEPS, P_THRESHOLD:P_THRESHOLD_VALUE}
 
 WEIGHT_OVER_CONTACTS = 'weight_over_contacts'
 WEIGHT_OVER_AGENTS = 'weight_over_agents'
@@ -47,22 +47,59 @@ ARRAY_NAMES_FLD = 'arrayNames'
 ARRAY_NAMES_DICT_FLD = 'arrayNamesDict'
 INDICES_FLD = 'indices' 
 
+EXPERIMENT_CONFIG_FILE_ATTRS = (
+    'scenario_filename',
+    'lrcm_filename',
+    'combined_stats_filename',
+    'simulations_summary_filename',
+    'experiment_state_filename',
+    'max_replications',
+    'init_replications',  
+    'cut_off_distances',  
+    'convergence_config',
+    'array_names',
+    'seeds_resevoir'
+    )
+
+EXPERIMENT_STATE_FILE_ATTRS = (
+    'successful_replication_count',
+    'failed_replication_count',
+    'last_convergence_stats',
+    'successful_replications',
+    'failed_replications'    
+    )
+
+def start_experiment(scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
+    exp_runner = ExperimentRunner(scenario_filename, lrcm_filename, convergence_config, cut_off_distances, max_replications, init_replications)
+    exp_runner.init_experiment()
+
+    return exp_runner
+
+def continue_experiment(experiment_filename):
+    pass
+
+
 class ExperimentRunner():
     
-    def __init__(self, scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS, data_folder=None):
+    def __init__(self, scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
         self.scenario_filename = Path(scenario_filename)
         self.lrcm_filename = lrcm_filename
         self.convergence_config = convergence_config
         self.cut_off_distances = cut_off_distances
         self.max_replications = max_replications
         self.init_replications = init_replications
-        self.data_folder = data_folder
-        
-        self.experiment_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_experiment.json')
-        self.combined_stats_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_combined.stats')
+
+        pub.subscribe(self._update_time, TIMESTEP_MSG_ID)
             
+    def init_experiment(self):
+        self.experiment_config_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_experiment.config.json')
+        self.simulations_summary_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_simulations_summary.res')
+        self.experiment_state_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_experiment.state.json')
+        self.combined_stats_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_combined.stats')            
+         
+        
         rng = np.random.default_rng()
-        self.seeds_resevoir = rng.choice(np.arange(1,max_replications*2), max_replications, False).tolist()
+        self.seeds_resevoir = rng.choice(np.arange(1,self.max_replications*2), self.max_replications, False).tolist()
         
         
         self.combined_data = {cut_off_distance:{STAFF_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES}, 
@@ -86,33 +123,19 @@ class ExperimentRunner():
                 for cdf_type, array_name in cdf_types.items():
                     self.array_names_2_dict[array_name] = (cut_off_distance, interaction_type, cdf_type)
          
-        self._init_experiment_file()
-        pub.subscribe(self._update_time, TIMESTEP_MSG_ID)
+        self.successful_replication_count = 0
+        self.failed_replication_count = 0
+        self.last_convergence_stats = None
+        self.successful_replications = []
+        self.failed_replications = [] 
+         
+        self._create_experiment_config_file()
+        self._create_experiment_state_file()
+        self._create_simulations_summary_file()
             
     def _update_time(self, timeInd, currentTime): # @UnusedVariable
         print('.', end='')
             
-    def _init_experiment_file(self):
-        self.experiment_info = {
-            'scenario_filename': str(self.scenario_filename),
-            'lrcm_filename': str(self.lrcm_filename),
-            'combined_stats_filename': str(self.combined_stats_filename),
-            'max_replications': self.max_replications,
-            'init_replications': self.init_replications,  
-            'cut_off_distances': self.cut_off_distances,  
-            'convergence_config': self.convergence_config,
-            'successful_replication_count': 0,
-            'failed_replication_count': 0,
-            'successful_replications': [], # (seed, .scen filename)
-            'failed_replications': [], # seed
-            'combined_data_info': {ARRAY_NAMES_FLD: self.array_names,
-                                   ARRAY_NAMES_DICT_FLD: self.array_names_2_dict,
-                                   INDICES_FLD:convert_sub_fields_to_list(self.combined_data_indices)},
-            'convergence_stats': [] # {replications:#rep, cvm_stats:{cdf_1:[pvalues]}}
-            }
-    
-        self._update_info_file(write_permission='x') 
-
     def run_experiment(self, replication_start_nr=0):
         self.replication_nr = replication_start_nr
         
@@ -265,7 +288,7 @@ class ExperimentRunner():
         
         np.savez(self.combined_stats_filename, **arrays)
         
-    def _update_info_file(self, write_permission='w'):
+    def _update_info_file_(self, write_permission='w'):
         with open(self.experiment_filename, write_permission) as f:
             json.dump(self.experiment_info, f, indent=4)    
         
@@ -302,6 +325,42 @@ class ExperimentRunner():
                 break
             
         return p_values, has_converged
+        
+    # ====================================================================================================
+        
+    def _create_experiment_config_file(self):
+        save_dict = {}
+        for attr_name in EXPERIMENT_CONFIG_FILE_ATTRS:
+            attr_value = getattr(self, attr_name)
+            if isinstance(attr_value, Path):
+                attr_value = str(attr_value)
+            save_dict[attr_name] = attr_value
+
+        with open(self.experiment_config_filename, 'w') as f:
+            json.dump(save_dict, f, indent=4)     
+
+    def _create_experiment_state_file(self):
+        self._update_experiment_state_file()   
+
+    def _create_simulations_summary_file(self):
+        with open(self.simulations_summary_filename, 'w') as f:
+            f.write('#Seed, scenario filename, success\n') 
+
+    def _update_experiment_state_file(self):
+        save_dict = {}
+        for attr_name in EXPERIMENT_STATE_FILE_ATTRS:
+            save_dict[attr_name] = getattr(self, attr_name)
+
+        with open(self.experiment_state_filename, 'w') as f:
+            json.dump(save_dict, f, indent=4)     
+
+    def _update_simulations_summary_file(self, seed, scen_filename, success):
+        with open(self.simulations_summary_filename, 'a') as f:
+            f.write(f'{seed}, {scen_filename}, {success}\n') 
+    
+    
+# ========================================================================================================
+# ========================================================================================================       
         
 def continue_from_file(experiment_filename, combined_stats_filename):
     # Load experiment file
