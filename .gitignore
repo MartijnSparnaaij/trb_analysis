@@ -1,5 +1,6 @@
 **/__pycache__/
 **/nomad/
+**/data/
 *-checkpoint.py
 *-checkpoint.ipynb
 /.project

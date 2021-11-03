@@ -10,6 +10,7 @@ from mpl_toolkits.axes_grid1.axes_divider import Divider
 import mpl_toolkits.axes_grid1.axes_size as Size
 
 import matplotlib.pyplot as plt
+from matplotlib import cm
 import numpy as np
 
 
@@ -126,11 +127,22 @@ def get_cdf_weights_at_probabilities(contact_data, step_size=0.05):
         
     return weights_at_probabilities  
     
+def get_colors(color_count):
+    colorMap = cm.get_cmap('cubehelix_r') #viridis_r
+    start_buffer = 0.18
+    end_buffer = 0.15
+    colors = []
+    step_size = (1 - start_buffer - end_buffer)/(color_count-1)
+    for ii in range(color_count):
+        colors.append(colorMap(start_buffer + ii*step_size))
+    
+    return colors
+    
 def create_cfd_weights_paper_plot(cdf_data, first_inset_cdf_data, second_inset_cdf_data, figure_props={}):
     fig = plt.figure(**figure_props)
     
     
-    divider = Divider(fig, (0,0,1,1), [Size.Fixed(0.6), Size.Scaled(1), Size.Fixed(0.3)], [Size.Fixed(0.5), Size.Scaled(1), Size.Fixed(0.08), Size.Fixed(0.3), Size.Fixed(0.05)], aspect=False)
+    divider = Divider(fig, (0,0,1,1), [Size.Fixed(0.45), Size.Scaled(1), Size.Fixed(0.03)], [Size.Fixed(0.5), Size.Scaled(1), Size.Fixed(0.08), Size.Fixed(0.4), Size.Fixed(0.05)], aspect=False)
     main_ax = fig.add_axes((0,0,1,1), 'main_ax')
     main_ax.set_axes_locator(divider.new_locator(nx=1,ny=1))
     
@@ -138,8 +150,11 @@ def create_cfd_weights_paper_plot(cdf_data, first_inset_cdf_data, second_inset_c
     legend_ax.set_axes_locator(divider.new_locator(nx=1,ny=3))
     legend_ax.set_axis_off()
         
-    colors = ('tab:red', 'tab:blue', 'tab:green', 'tab:orange')
-    line_widths = (4,3,2,1)
+    #colors = ('tab:red', 'tab:blue', 'tab:green', 'tab:orange', 'tab:cyan')
+    colors = get_colors(len(cdf_data))
+    line_widths = (3,3,1.5,1.5,1.5)
+    line_styles = ('-', '--', '--', '-', '--')
+    zorders = (1,2,4,5,3)
     
     line_ind = 0
     line_handles = []
@@ -147,7 +162,9 @@ def create_cfd_weights_paper_plot(cdf_data, first_inset_cdf_data, second_inset_c
     for label, plot_data in cdf_data.items():
         x = plot_data['x']/60 # Converge from seconds to minutes
         y = plot_data['y']
-        line_handle = main_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], label=f'{label}')
+        line_handle = main_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], 
+                                       linestyle=line_styles[line_ind], label=f'{label}',
+                                       zorder=zorders[line_ind])
         line_handles.append(line_handle[0])
         line_labels.append(label)
         line_ind += 1 
@@ -157,12 +174,12 @@ def create_cfd_weights_paper_plot(cdf_data, first_inset_cdf_data, second_inset_c
     main_ax.tick_params(labelsize=8)
     main_ax.grid()
     
-    inset_ax_width = .3
-    inset_ax_height = .5
-    inset_ax_y = 0.2
+    inset_ax_width = .36
+    inset_ax_height = .52
+    inset_ax_y = 0.17
     
     
-    back_ax = fig.add_axes((.17, inset_ax_y-0.05,inset_ax_width*2+0.15,inset_ax_height+0.1), 'back_ax')
+    back_ax = fig.add_axes((.16, inset_ax_y-0.05,inset_ax_width*2+0.105,inset_ax_height+0.1), 'back_ax')
     back_ax.get_xaxis().set_visible(False)
     back_ax.get_yaxis().set_visible(False)
     back_ax.spines['bottom'].set_color('w')
@@ -171,14 +188,16 @@ def create_cfd_weights_paper_plot(cdf_data, first_inset_cdf_data, second_inset_c
     back_ax.spines['left'].set_color('w')
     back_ax.set_alpha(0.6)
     
-    first_inset_ax = fig.add_axes((.22, inset_ax_y,inset_ax_width,inset_ax_height), 'first_inset_ax')
+    first_inset_ax = fig.add_axes((.20, inset_ax_y,inset_ax_width,inset_ax_height), 'first_inset_ax')
     second_inset_ax = fig.add_axes((.62, inset_ax_y,inset_ax_width,inset_ax_height), 'second_inset_ax_inset_ax')
     
     line_ind = 0
     for label, plot_data in first_inset_cdf_data.items():
         x = plot_data['x']/60 # Converge from seconds to minutes
         y = plot_data['y']
-        first_inset_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], label=f'{label}')
+        first_inset_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], 
+                                       linestyle=line_styles[line_ind], label=f'{label}',
+                                       zorder=zorders[line_ind])
         line_ind += 1 
     
     first_inset_ax.grid()
@@ -189,14 +208,16 @@ def create_cfd_weights_paper_plot(cdf_data, first_inset_cdf_data, second_inset_c
     for label, plot_data in second_inset_cdf_data.items():
         x = plot_data['x']/60 # Converge from seconds to minutes
         y = plot_data['y']
-        second_inset_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], label=f'{label}')
+        second_inset_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], 
+                                       linestyle=line_styles[line_ind], label=f'{label}',
+                                       zorder=zorders[line_ind])
         line_ind += 1 
     
     second_inset_ax.grid()
     second_inset_ax.set_title('Staff-Customer', fontsize=8)
     second_inset_ax.tick_params(labelsize=8)
     
-    legend_ax.legend(line_handles, line_labels, loc='upper center', ncol=4, fontsize=8)
+    legend_ax.legend(line_handles, line_labels, loc='upper center', ncol=3, fontsize=8, handlelength=3)
     plt.draw()
     
 
@@ -205,14 +226,17 @@ def create_cfd_contacts_paper_plot(cdf_data, figure_props={}):
     
     
     
-    divider = Divider(fig, (0,0,1,1), [Size.Fixed(0.6), Size.Scaled(1), Size.Fixed(0.1), Size.Scaled(1), Size.Fixed(0.1), Size.Scaled(1), Size.Fixed(0.1)], [Size.Fixed(0.5), Size.Scaled(1), Size.Fixed(0.21), Size.Fixed(0.3), Size.Fixed(0.02)], aspect=False)
+    divider = Divider(fig, (0,0,1,1), [Size.Fixed(0.45), Size.Scaled(1), Size.Fixed(0.1), Size.Scaled(1), Size.Fixed(0.1), Size.Scaled(1), Size.Fixed(0.03)], [Size.Fixed(0.5), Size.Scaled(1), Size.Fixed(0.21), Size.Fixed(0.5), Size.Fixed(0.02)], aspect=False)
     
     legend_ax = fig.add_axes((0,0,1,1), 'legend_ax')
     legend_ax.set_axes_locator(divider.new_locator(nx=1,ny=3, nx1=6))
     legend_ax.set_axis_off()
         
-    colors = ('tab:red', 'tab:blue', 'tab:green', 'tab:orange')
-    line_widths = (4,3,2,1)
+    colors = ('tab:red', 'tab:blue', 'tab:green', 'tab:orange', 'tab:cyan')
+    colors = get_colors(len(list(cdf_data.values())[0]))
+    line_widths = (3,3,1.5,1.5,1.5)
+    line_styles = ('-', '--', '--', '-', '--')
+    zorders = (1,2,4,5,3)
 
     axes = []
     line_handles = []
@@ -225,7 +249,9 @@ def create_cfd_contacts_paper_plot(cdf_data, figure_props={}):
         for label, plot_data in ax_data.items():
             x = plot_data['x']
             y = plot_data['y']
-            line_handle = draw_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], label=f'{label}')
+            line_handle = draw_ax.plot(x, y, color=colors[line_ind], linewidth=line_widths[line_ind], 
+                                       linestyle=line_styles[line_ind], label=f'{label}',
+                                       zorder=zorders[line_ind])
             if ax_ind == 0:
                 line_handles.append(line_handle[0])
                 line_labels.append(label)
@@ -242,6 +268,6 @@ def create_cfd_contacts_paper_plot(cdf_data, figure_props={}):
         draw_ax.grid()
         ax_ind += 1
         
-    legend_ax.legend(line_handles, line_labels, loc='upper center', ncol=4, fontsize=8)
+    legend_ax.legend(line_handles, line_labels, loc='upper center', ncol=3, fontsize=8, handlelength=3)
         
     plt.draw()
