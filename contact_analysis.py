@@ -6,7 +6,7 @@ Created on 13 Jul 2021
 from _collections import defaultdict, deque
 from copy import deepcopy
 import json
-from math import ceil
+from math import ceil, floor
 from pathlib import Path
 import traceback
 
@@ -18,6 +18,7 @@ from NOMAD.activity_scheduler import STAFF_GROUP_NAME
 from NOMAD.constants import TIMESTEP_MSG_ID, SEND_TIME_MSG_INTERVAL_SEC
 from NOMAD.nomad_model import onlyCreate
 from NOMAD.output_manager import BasicFileOutputManager
+from NOMAD.xml_scenario_input import getOutputFolder
 import numpy as np
 
 
@@ -64,44 +65,40 @@ EXPERIMENT_CONFIG_FILE_ATTRS = (
 EXPERIMENT_STATE_FILE_ATTRS = (
     'successful_replication_count',
     'failed_replication_count',
+    'replication_nr',
     'last_convergence_stats',
     'successful_replications',
-    'failed_replications'    
+    'failed_replications',      
     )
 
 def start_experiment(scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
     exp_runner = ExperimentRunner(scenario_filename, lrcm_filename, convergence_config, cut_off_distances, max_replications, init_replications)
     exp_runner.init_experiment()
-
+    exp_runner.run_experiment()
     return exp_runner
 
-def continue_experiment(experiment_filename):
-    pass
+def continue_experiment(experiment_config_filename):
+    with open(experiment_config_filename, 'r') as f:
+        experiment_config = json.load(f)
+        
+    exp_runner = ExperimentRunner(experiment_config['scenario_filename'], experiment_config['lrcm_filename'], 
+                                  experiment_config['convergence_config'], experiment_config['cut_off_distances'], 
+                                  experiment_config['max_replications'], experiment_config['init_replications'])    
 
+    exp_runner.init_experiment_from_state(experiment_config)
+    exp_runner.run_experiment()
+    return exp_runner
 
 class ExperimentRunner():
     
     def __init__(self, scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
         self.scenario_filename = Path(scenario_filename)
-        self.lrcm_filename = lrcm_filename
+        self.lrcm_filename = Path(lrcm_filename)
         self.convergence_config = convergence_config
         self.cut_off_distances = cut_off_distances
         self.max_replications = max_replications
         self.init_replications = init_replications
 
-        pub.subscribe(self._update_time, TIMESTEP_MSG_ID)
-            
-    def init_experiment(self):
-        self.experiment_config_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_experiment.config.json')
-        self.simulations_summary_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_simulations_summary.res')
-        self.experiment_state_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_experiment.state.json')
-        self.combined_stats_filename = self.scenario_filename.parent.joinpath(f'{self.scenario_filename.stem}_combined.stats')            
-         
-        
-        rng = np.random.default_rng()
-        self.seeds_resevoir = rng.choice(np.arange(1,self.max_replications*2), self.max_replications, False).tolist()
-        
-        
         self.combined_data = {cut_off_distance:{STAFF_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES}, 
                                                 CUSTOMER_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES},
                                                 CUSTOMER_STAFF:{cdf_type:None for cdf_type in (WEIGHT_OVER_AGENTS, CONTACTS_OVER_AGENTS)}} 
@@ -110,40 +107,72 @@ class ExperimentRunner():
                                                         CUSTOMER_CUSTOMER:{cdf_type:deque('', self.convergence_config[STEPS] + 1) for cdf_type in CDF_TYPES},
                                                        CUSTOMER_STAFF:{cdf_type:deque('', self.convergence_config[STEPS] + 1) for cdf_type in (WEIGHT_OVER_AGENTS, CONTACTS_OVER_AGENTS)}} 
                                       for cut_off_distance in self.cut_off_distances} # Of the last 5 entries
+
+        pub.subscribe(self._update_time, TIMESTEP_MSG_ID)
+            
+    def init_experiment(self):
+        output_folder = getOutputFolder(self.scenario_filename)
+        
+        self.experiment_config_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_experiment.config.json')
+        self.simulations_summary_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_simulations_summary.res')
+        self.experiment_state_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_experiment.state.json')
+        self.combined_stats_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_combined.stats')            
+                 
+        rng = np.random.default_rng()
+        self.seeds_resevoir = rng.choice(np.arange(1,self.max_replications*2), self.max_replications, False).tolist()
         
         self.array_names = {cut_off_distance:{
                             STAFF_CUSTOMER:{cdf_type:get_array_field_name(cut_off_distance, STAFF_CUSTOMER, cdf_type) for cdf_type in CDF_TYPES}, 
                             CUSTOMER_CUSTOMER:{cdf_type:get_array_field_name(cut_off_distance, CUSTOMER_CUSTOMER, cdf_type) for cdf_type in CDF_TYPES},
                             CUSTOMER_STAFF:{cdf_type:get_array_field_name(cut_off_distance, CUSTOMER_STAFF, cdf_type) for cdf_type in (WEIGHT_OVER_AGENTS, CONTACTS_OVER_AGENTS)}} 
                             for cut_off_distance in self.cut_off_distances}
-        
-        self.array_names_2_dict = {}
-        for cut_off_distance, interaction_types in self.array_names.items():
-            for interaction_type, cdf_types in interaction_types.items():
-                for cdf_type, array_name in cdf_types.items():
-                    self.array_names_2_dict[array_name] = (cut_off_distance, interaction_type, cdf_type)
          
         self.successful_replication_count = 0
         self.failed_replication_count = 0
         self.last_convergence_stats = None
         self.successful_replications = []
         self.failed_replications = [] 
+        self.replication_nr = 0
          
         self._create_experiment_config_file()
         self._create_experiment_state_file()
         self._create_simulations_summary_file()
             
+    def init_experiment_from_state(self, experiment_config):
+        self.combined_stats_filename = Path(experiment_config[''])
+        self.simulations_summary_filename = Path(experiment_config['simulations_summary_filename'])
+        self.experiment_state_filename = Path(experiment_config['experiment_state_filename'])
+        self.array_names = experiment_config['array_names']
+        self.seeds_resevoir = experiment_config['seeds_resevoir']    
+    
+        with open(self.experiment_state_filename, 'r') as f:
+                experiment_state = json.load(f)
+            
+        self.successful_replication_count = experiment_state['successful_replication_count']
+        self.failed_replication_count = experiment_state['failed_replication_count']
+        self.last_convergence_stats = experiment_state['last_convergence_stats']
+        self.successful_replications = experiment_state['successful_replications']
+        self.failed_replications = experiment_state['failed_replications'] 
+        self.replication_nr = experiment_state['replication_nr'] + 1
+    
+        num_data = np.load(self.combined_stats_filename, allow_pickle=True)
+        arrays_dict = num_data['arrays'].item()
+        indices_dict = num_data['indices'].item() 
+
+        for cut_off_distance, interaction_types in self.array_names.items():
+            for interaction_type, cdf_types in interaction_types.items():
+                for cdf_type, array_name in cdf_types.items():
+                    self.combined_data[cut_off_distance][interaction_type][cdf_type] = arrays_dict[array_name]
+                    self.combined_data_indices[cut_off_distance][interaction_type][cdf_type] = indices_dict[array_name]
+    
     def _update_time(self, timeInd, currentTime): # @UnusedVariable
         print('.', end='')
             
-    def run_experiment(self, replication_start_nr=0):
-        self.replication_nr = replication_start_nr
-        
+    def run_experiment(self):
         self.last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
-        if self.replication_nr > self.last_convergence_check:
-            self.last_convergence_check =+ ceil((self.replication_nr - self.last_convergence_check)/self.convergence_config['steps'])*self.convergence_config['steps']            
+        if self.replication_nr - self.failed_replication_count > self.last_convergence_check + self.convergence_config['steps']:
+            self.last_convergence_check = floor((self.replication_nr - self.failed_replication_count)/self.convergence_config['steps'])*self.convergence_config['steps']           
         
-        self.failed_count = 0
         while self.replication_nr < self.max_replications:
             seed = self.seeds_resevoir[self.replication_nr]
             print(f'Running replication {self.replication_nr} with seed = {seed}')            
@@ -156,93 +185,41 @@ class ExperimentRunner():
                 print('FAILED')
                 traceback.print_exc()
                 print('')
-                del nomad_model
-                self._update_info_after_failed(seed)
+                try:
+                    scen_filename = nomad_model.outputManager.scenarioFilename
+                except:
+                    scen_filename = ''
+                try:
+                    del nomad_model
+                except: pass
+                self.failed_replication_count += 1
+                self.failed_replications.append(seed)
+                self._update_files_after_sim(seed, scen_filename, False)
                 continue
             print('\nSimulation done. Processing data... ', end='')
             # Process output accessing it directly via the nomad_model instance
             self._process_data(nomad_model)
-                   
-            self._update_info_after_success(seed, str(nomad_model.outputManager.scenarioFilename))
+            self.successful_replication_count += 1
+            self.successful_replications.append(seed)
+            self._update_files_after_sim(seed, nomad_model.outputManager.scenarioFilename, True)
             del nomad_model     
             print('done')
-            if self.replication_nr - self.failed_count == self.last_convergence_check + self.convergence_config['steps']:
+            
+            if self.replication_nr - self.failed_replication_count == self.last_convergence_check + self.convergence_config['steps']:
                 # Check convergence
                 print('Checking convergence... ', end='')
                 p_values, has_converged = self._check_convergence()                 
-                self._update_info_after_convergence_check(p_values)
-                    
+                self.last_convergence_stats = p_values
+                self._update_experiment_state_file()    
                 print('done')
                 if has_converged:                    
-                    self._save_data_2_file()
                     print(f'{"="*40}\n')
                     print(f'FINISHED!!!!!!!!!!\n')
                     print(f'{"="*40}')
                     break 
             
-            self._save_data_2_file()                           
             self.replication_nr += 1            
             
-    def recreate_from_folder(self):
-        # Get a scenario file from folder
-        # Get time step from file
-        # Get all conncetion files 
-        # Process all files
-        scen_filenames = get_scenario_files_from_dir(self.data_folder)
-        self.replication_nr = 0
-        self.last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
-        self.failed_count = 0
-        print(len(scen_filenames))
-    
-        for scen_filename in scen_filenames:
-            try:
-                print(f'{self.replication_nr:04d} - {scen_filename} ...', end='')
-                time_step, seed, connections, ID_2_group_ID = load_data(scen_filename)
-            except:
-                print('FAILED')
-                traceback.print_exc()
-                print('')
-                self._update_info_after_failed(get_seed_from_filename(scen_filename))                           
-                continue
-            
-            self._process_data(None, connections, ID_2_group_ID, time_step)
-            
-            self._update_info_after_success(seed, scen_filename)
-            print('done')
-            if self.replication_nr == self.last_convergence_check + self.convergence_config['steps']:
-                # Check convergence
-                print('Checking convergence... ', end='')
-                p_values, _ = self._check_convergence() 
-                self._update_info_after_convergence_check(p_values)
-                print('done')                
-
-            self._save_data_2_file()
-            self.replication_nr += 1
-    
-    def _update_info_after_failed(self, seed):
-        self.replication_nr += 1   
-        self.failed_count += 1
-        self.experiment_info['failed_replication_count'] += 1
-        self.experiment_info['failed_replications'].append(seed)
-        self._update_info_file()        
-                
-    def _update_info_after_success(self, seed, scen_filename):
-        self.experiment_info['combined_data_info'][INDICES_FLD] = convert_sub_fields_to_list(self.combined_data_indices)
-        self.experiment_info['successful_replication_count'] += 1
-        self.experiment_info['successful_replications'].append((seed, str(scen_filename)))
-                
-    def _update_info_after_convergence_check(self, p_values):
-        self.last_convergence_check = self.replication_nr
-        self.failed_count = 0                
-        # save combined data 2 file
-        self.experiment_info['convergence_stats'].append((self.replication_nr, p_values, convert_sub_fields_to_list(self.combined_data_indices)))
- 
-    def _save_data_2_file(self):
-        print('Saving data to file...', end='')    
-        self._save_combined_data()
-        self._update_info_file()
-        print('done')
-    
     def _process_data(self, nomad_model, connections=None, ID_2_group_ID=None, time_step=None):
         if nomad_model is not None:
             connections = nomad_model.outputManager.connections
@@ -278,20 +255,6 @@ class ExperimentRunner():
             
         self.combined_data_indices[cut_off_distance][interaction_type][cdf_type].append(len(self.combined_data[cut_off_distance][interaction_type][cdf_type]))
 
-    def _save_combined_data(self):
-        arrays = {}
-        for cut_off_distance, interaction_types in self.combined_data.items():
-            for interaction_type, cdf_types in interaction_types.items():
-                for cdf_type, array in cdf_types.items():
-                    array_name = self.array_names[cut_off_distance][interaction_type][cdf_type]
-                    arrays[array_name] = array
-        
-        np.savez(self.combined_stats_filename, **arrays)
-        
-    def _update_info_file_(self, write_permission='w'):
-        with open(self.experiment_filename, write_permission) as f:
-            json.dump(self.experiment_info, f, indent=4)    
-        
     def _check_convergence(self):
         p_values = {}
         has_converged = True
@@ -346,6 +309,12 @@ class ExperimentRunner():
         with open(self.simulations_summary_filename, 'w') as f:
             f.write('#Seed, scenario filename, success\n') 
 
+    def _update_files_after_sim(self, seed, scen_filename, success):
+        self._update_experiment_state_file()
+        self._update_simulations_summary_file(seed, scen_filename, success)
+        if success:
+            self._update_combined_stats_file()
+        
     def _update_experiment_state_file(self):
         save_dict = {}
         for attr_name in EXPERIMENT_STATE_FILE_ATTRS:
@@ -356,9 +325,60 @@ class ExperimentRunner():
 
     def _update_simulations_summary_file(self, seed, scen_filename, success):
         with open(self.simulations_summary_filename, 'a') as f:
-            f.write(f'{seed}, {scen_filename}, {success}\n') 
+            f.write(f'{seed}, {str(scen_filename)}, {success}\n') 
     
+    def _update_combined_stats_file(self):
+        arrays = {}
+        indices = {}
+        for cut_off_distance, interaction_types in self.combined_data.items():
+            for interaction_type, cdf_types in interaction_types.items():
+                for cdf_type, array in cdf_types.items():
+                    array_name = self.array_names[cut_off_distance][interaction_type][cdf_type]
+                    arrays[array_name] = array
+                    indices[array_name] = self.combined_data_indices[cut_off_distance][interaction_type][cdf_type]
+                    
+        data_2_save = {'arrays':arrays, 'indices':indices}
+        
+        np.savez(self.combined_stats_filename, **data_2_save)
+
+    # ====================================================================================================
+
+    def recreate_from_folder(self):
+        # Get a scenario file from folder
+        # Get time step from file
+        # Get all conncetion files 
+        # Process all files
+        scen_filenames = get_scenario_files_from_dir(self.data_folder)
+        self.replication_nr = 0
+        self.last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
+        self.failed_count = 0
+        print(len(scen_filenames))
     
+        for scen_filename in scen_filenames:
+            try:
+                print(f'{self.replication_nr:04d} - {scen_filename} ...', end='')
+                time_step, seed, connections, ID_2_group_ID = load_data(scen_filename)
+            except:
+                print('FAILED')
+                traceback.print_exc()
+                print('')
+                self._update_info_after_failed(get_seed_from_filename(scen_filename))                           
+                continue
+            
+            self._process_data(None, connections, ID_2_group_ID, time_step)
+            
+            self._update_info_after_success(seed, scen_filename)
+            print('done')
+            if self.replication_nr == self.last_convergence_check + self.convergence_config['steps']:
+                # Check convergence
+                print('Checking convergence... ', end='')
+                p_values, _ = self._check_convergence() 
+                self._update_info_after_convergence_check(p_values)
+                print('done')                
+
+            self._save_data_2_file()
+            self.replication_nr += 1
+            
 # ========================================================================================================
 # ========================================================================================================       
         
