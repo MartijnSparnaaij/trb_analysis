@@ -6,6 +6,7 @@ Created on 13 Jul 2021
 from _collections import defaultdict, deque
 from copy import deepcopy
 import json
+import logging
 from math import ceil, floor
 from pathlib import Path
 import traceback
@@ -71,8 +72,24 @@ EXPERIMENT_STATE_FILE_ATTRS = (
     'failed_replications',      
     )
 
-def start_experiment(scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
-    exp_runner = ExperimentRunner(scenario_filename, lrcm_filename, convergence_config, cut_off_distances, max_replications, init_replications)
+#LOGGER_NAME = 'contact_experiment'
+   
+
+def start_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
+    createLoggers(log_dir, log_name)
+    logger = logging.getLogger(log_name)
+    exp_runners = []
+    logger.info(f'Starting experiment for {len(scenario_filenames)} scenarios')
+    for scenario_filename in scenario_filenames:
+        exp_runner = ExperimentRunner(scenario_filename, lrcm_filename, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
+        exp_runners.append(exp_runner)
+        exp_runner.init_experiment()
+        exp_runner.run_experiment()
+    return exp_runners
+
+
+def start_experiment(scenario_filename, lrcm_filename, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
+    exp_runner = ExperimentRunner(scenario_filename, lrcm_filename, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
     exp_runner.init_experiment()
     exp_runner.run_experiment()
     return exp_runner
@@ -91,7 +108,8 @@ def continue_experiment(experiment_config_filename):
 
 class ExperimentRunner():
     
-    def __init__(self, scenario_filename, lrcm_filename, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
+    def __init__(self, scenario_filename, lrcm_filename, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
+        self.logger = logging.getLogger(log_name)
         self.scenario_filename = Path(scenario_filename)
         self.lrcm_filename = Path(lrcm_filename)
         self.convergence_config = convergence_config
@@ -108,15 +126,18 @@ class ExperimentRunner():
                                                        CUSTOMER_STAFF:{cdf_type:deque('', self.convergence_config[STEPS] + 1) for cdf_type in (WEIGHT_OVER_AGENTS, CONTACTS_OVER_AGENTS)}} 
                                       for cut_off_distance in self.cut_off_distances} # Of the last 5 entries
 
-        pub.subscribe(self._update_time, TIMESTEP_MSG_ID)
+        #pub.subscribe(self._update_time, TIMESTEP_MSG_ID)
             
     def init_experiment(self):
-        output_folder = getOutputFolder(self.scenario_filename)
+        base_output_folder = getOutputFolder(self.scenario_filename)
+        output_folder = base_output_folder.joinpath('summarized') 
+        if not output_folder.is_dir():
+            output_folder.mkdir(parents=True)
         
         self.experiment_config_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_experiment.config.json')
         self.simulations_summary_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_simulations_summary.res')
         self.experiment_state_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_experiment.state.json')
-        self.combined_stats_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_combined.stats')            
+        self.combined_stats_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_combined.stats.npz')            
                  
         rng = np.random.default_rng()
         self.seeds_resevoir = rng.choice(np.arange(1,self.max_replications*2), self.max_replications, False).tolist()
@@ -139,7 +160,7 @@ class ExperimentRunner():
         self._create_simulations_summary_file()
             
     def init_experiment_from_state(self, experiment_config):
-        self.combined_stats_filename = Path(experiment_config[''])
+        self.combined_stats_filename = Path(experiment_config['combined_stats_filename'])
         self.simulations_summary_filename = Path(experiment_config['simulations_summary_filename'])
         self.experiment_state_filename = Path(experiment_config['experiment_state_filename'])
         self.array_names = experiment_config['array_names']
@@ -160,6 +181,7 @@ class ExperimentRunner():
         indices_dict = num_data['indices'].item() 
 
         for cut_off_distance, interaction_types in self.array_names.items():
+            cut_off_distance = float(cut_off_distance)
             for interaction_type, cdf_types in interaction_types.items():
                 for cdf_type, array_name in cdf_types.items():
                     self.combined_data[cut_off_distance][interaction_type][cdf_type] = arrays_dict[array_name]
@@ -175,14 +197,14 @@ class ExperimentRunner():
         
         while self.replication_nr < self.max_replications:
             seed = self.seeds_resevoir[self.replication_nr]
-            print(f'Running replication {self.replication_nr} with seed = {seed}')            
+            self.logger.info(f'Running replication {self.replication_nr} with seed = {seed}')            
             NOMAD.NOMAD_RNG = np.random.default_rng(seed)
             try:
                 nomad_model = onlyCreate(self.scenario_filename, lrcmLoadFile=self.lrcm_filename, seed=seed)
-                print('='*ceil(nomad_model.duration/SEND_TIME_MSG_INTERVAL_SEC))
+                self.logger.info('='*ceil(nomad_model.duration/SEND_TIME_MSG_INTERVAL_SEC))
                 nomad_model.start()
             except:
-                print('FAILED')
+                self.logger.info('FAILED')
                 traceback.print_exc()
                 print('')
                 try:
@@ -196,26 +218,26 @@ class ExperimentRunner():
                 self.failed_replications.append(seed)
                 self._update_files_after_sim(seed, scen_filename, False)
                 continue
-            print('\nSimulation done. Processing data... ', end='')
+            self.logger.info('Simulation done. Processing data... ')
             # Process output accessing it directly via the nomad_model instance
             self._process_data(nomad_model)
             self.successful_replication_count += 1
             self.successful_replications.append(seed)
             self._update_files_after_sim(seed, nomad_model.outputManager.scenarioFilename, True)
             del nomad_model     
-            print('done')
+            self.logger.info('done')
             
             if self.replication_nr - self.failed_replication_count == self.last_convergence_check + self.convergence_config['steps']:
                 # Check convergence
-                print('Checking convergence... ', end='')
+                self.logger.info('Checking convergence...')
                 p_values, has_converged = self._check_convergence()                 
                 self.last_convergence_stats = p_values
                 self._update_experiment_state_file()    
-                print('done')
+                self.logger.info('done')
                 if has_converged:                    
-                    print(f'{"="*40}\n')
-                    print(f'FINISHED!!!!!!!!!!\n')
-                    print(f'{"="*40}')
+                    self.logger.info(f'{"="*40}\n')
+                    self.logger.info(f'FINISHED!!!!!!!!!!\n')
+                    self.logger.info(f'{"="*40}')
                     break 
             
             self.replication_nr += 1            
@@ -262,7 +284,7 @@ class ExperimentRunner():
             for interaction_type, cdf_types in interaction_types.items():
                 for cdf_type, array in cdf_types.items():
                     array_indices = self.combined_data_indices[cut_off_distance][interaction_type][cdf_type]
-                    p_values_local, has_converged_local =self._check_convergence_for_array(array, array_indices)
+                    p_values_local, has_converged_local = self._check_convergence_for_array(array, array_indices)
                     has_converged = has_converged and has_converged_local
                     array_name = self.array_names[cut_off_distance][interaction_type][cdf_type]
                     p_values[array_name] = p_values_local
@@ -356,25 +378,25 @@ class ExperimentRunner():
     
         for scen_filename in scen_filenames:
             try:
-                print(f'{self.replication_nr:04d} - {scen_filename} ...', end='')
+                self.logger.info(f'{self.replication_nr:04d} - {scen_filename} ...')
                 time_step, seed, connections, ID_2_group_ID = load_data(scen_filename)
             except:
-                print('FAILED')
+                self.logger.info('FAILED')
                 traceback.print_exc()
-                print('')
+                self.logger.info('')
                 self._update_info_after_failed(get_seed_from_filename(scen_filename))                           
                 continue
             
             self._process_data(None, connections, ID_2_group_ID, time_step)
             
             self._update_info_after_success(seed, scen_filename)
-            print('done')
+            self.logger.info('done')
             if self.replication_nr == self.last_convergence_check + self.convergence_config['steps']:
                 # Check convergence
-                print('Checking convergence... ', end='')
+                self.logger.info('Checking convergence... ')
                 p_values, _ = self._check_convergence() 
                 self._update_info_after_convergence_check(p_values)
-                print('done')                
+                self.logger.info('done')                
 
             self._save_data_2_file()
             self.replication_nr += 1
@@ -578,3 +600,27 @@ def get_contacts_longer_than_value(data_folder, boundary_value, cut_off_distance
         print('')
     
     
+def createLoggers(log_dir, log_name):
+    logger = logging.getLogger(log_name)
+    logger.setLevel(logging.DEBUG)
+
+    log_dir = Path(log_dir)
+    if not log_dir.is_dir():
+        log_dir.mkdir(parents=True)
+
+    formatter = logging.Formatter("{asctime} - {name} - {levelname} - {message}", '%Y/%m/%d %H:%M:%S', style='{')
+    
+    import sys    
+    stream_handler = logging.StreamHandler(sys.stdout)
+    stream_handler.setFormatter(formatter)
+    logger.addHandler(stream_handler)
+
+    log_filename = log_dir.joinpath(f'{log_name}.log')
+    file_handeler = logging.handlers.RotatingFileHandler(log_filename, maxBytes=1024*1024*30, backupCount=10)
+    file_handeler.setFormatter(formatter)
+    file_handeler.setLevel(logging.INFO)
+    logger.addHandler(file_handeler)
+    
+    logger.propagate = False
+    
+    return logger
