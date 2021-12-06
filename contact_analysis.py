@@ -76,18 +76,60 @@ EXPERIMENT_STATE_FILE_ATTRS = (
    
 
 def start_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
+    run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
+
+def run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications, start_index=0, continue_from_file=False):
     createLoggers(log_dir, log_name)
     logger = logging.getLogger(log_name)
     exp_runners = []
-    logger.info(f'Starting experiment for {len(scenario_filenames)} scenarios')
-    for scenario_filename in scenario_filenames:
+    logger.info('\n=======================================================================\n')
+    if continue_from_file:
+        logger.info(f'Continuing experiments for {len(scenario_filenames)} scenarios')
+    else:
+        logger.info(f'Starting experiments for {len(scenario_filenames)} scenarios')
+        
+    experiments_state_filename = log_dir.joinpath('experiments.state.json')
+    
+    for scenario_index in range(start_index, len(scenario_filenames)):
+        scenario_filename = scenario_filenames[scenario_index]
+        save_dict = {'filenames':[str(scenario_filename) for scenario_filename in scenario_filenames], 'current_filename':str(scenario_filename), 'lrcm_filename':str(lrcm_filename), 'log_dir':str(log_dir), 'log_name':log_name, 'convergence_config':convergence_config, 'cut_off_distances':cut_off_distances, 'max_replications':max_replications, 'init_replications':init_replications}
+    
+        with open(experiments_state_filename, 'w') as f:
+            json.dump(save_dict, f, indent=4)    
+        
+        logger.info(f'Starting experiments for {scenario_filename}')        
         exp_runner = ExperimentRunner(scenario_filename, lrcm_filename, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
         exp_runners.append(exp_runner)
-        exp_runner.init_experiment()
+        if continue_from_file:
+            experiment_config = exp_runner.get_experiment_config()          
+            exp_runner.init_experiment_from_state(experiment_config)
+        else:
+            exp_runner.init_experiment()
+        
         exp_runner.run_experiment()
+        
     return exp_runners
+    
 
-
+def continue_experiments(experiments_config_filename):
+    with open(experiments_config_filename, 'r') as f:
+        experiment_config = json.load(f)
+        
+    scenario_filenames = [Path(scenario_filename) for scenario_filename in experiment_config['filenames']]
+    lrcm_filename = Path(experiment_config['lrcm_filename'])
+    log_dir = Path(experiment_config['log_dir'])
+    log_name = experiment_config['log_name']
+    convergence_config = experiment_config['convergence_config']
+    cut_off_distances = experiment_config['cut_off_distances']
+    max_replications = experiment_config['max_replications']
+    init_replications = experiment_config['init_replications']
+    
+    current_filename = Path(experiment_config['current_filename'])
+    start_index = scenario_filenames.index(current_filename)
+            
+    run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications, start_index=start_index, continue_from_file=True)
+        
+    
 def start_experiment(scenario_filename, lrcm_filename, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
     exp_runner = ExperimentRunner(scenario_filename, lrcm_filename, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
     exp_runner.init_experiment()
@@ -365,6 +407,21 @@ class ExperimentRunner():
 
     # ====================================================================================================
 
+    def get_experiment_config(self):
+        base_output_folder = getOutputFolder(self.scenario_filename)
+        output_folder = base_output_folder.joinpath('summarized') 
+        if not output_folder.is_dir():
+            output_folder.mkdir(parents=True)
+        
+        self.experiment_config_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_experiment.config.json')
+
+        with open(self.experiment_config_filename, 'r') as f:
+            experiment_config = json.load(f)
+
+        return experiment_config 
+
+    # ====================================================================================================
+
     def recreate_from_folder(self):
         # Get a scenario file from folder
         # Get time step from file
@@ -400,6 +457,9 @@ class ExperimentRunner():
 
             self._save_data_2_file()
             self.replication_nr += 1
+            
+            
+    
             
 # ========================================================================================================
 # ========================================================================================================       
