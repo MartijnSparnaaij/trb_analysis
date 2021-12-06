@@ -88,7 +88,7 @@ def run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, conver
     else:
         logger.info(f'Starting experiments for {len(scenario_filenames)} scenarios')
         
-    experiments_state_filename = log_dir.joinpath('experiments.state.json')
+    experiments_state_filename = log_dir.joinpath(f'{log_name}_experiments.state.json')
     
     for scenario_index in range(start_index, len(scenario_filenames)):
         scenario_filename = scenario_filenames[scenario_index]
