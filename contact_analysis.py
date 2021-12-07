@@ -225,11 +225,9 @@ class ExperimentRunner():
         indices_dict = num_data['indices'].item() 
 
         keys2pop = []
-        for cut_off_distance, interaction_types in self.array_names.items():
+        for cut_off_distance, interaction_types in list(self.array_names.items()):
             self.array_names[float(cut_off_distance)] = interaction_types
-            keys2pop.append(cut_off_distance)
-        for key in keys2pop:
-            self.array_names.pop(key)
+            self.array_names.pop(cut_off_distance)
 
         for cut_off_distance, interaction_types in self.array_names.items():            
             for interaction_type, cdf_types in interaction_types.items():
