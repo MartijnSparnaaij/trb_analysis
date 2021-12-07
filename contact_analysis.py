@@ -23,6 +23,8 @@ from NOMAD.xml_scenario_input import getOutputFolder
 import numpy as np
 
 
+
+
 MAX_REPLICATIONS = 5000
 INIT_REPLICATIONS = 30
 CONSECUTIVE_STEPS = 5
@@ -81,6 +83,7 @@ def start_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, conv
 def run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications, start_index=0, continue_from_file=False):
     createLoggers(log_dir, log_name)
     logger = logging.getLogger(log_name)
+    
     exp_runners = []
     logger.info('\n=======================================================================\n')
     if continue_from_file:
@@ -105,7 +108,6 @@ def run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, conver
             exp_runner.init_experiment_from_state(experiment_config)
         else:
             exp_runner.init_experiment()
-        
         exp_runner.run_experiment()
         
     return exp_runners
@@ -222,8 +224,14 @@ class ExperimentRunner():
         arrays_dict = num_data['arrays'].item()
         indices_dict = num_data['indices'].item() 
 
+        keys2pop = []
         for cut_off_distance, interaction_types in self.array_names.items():
-            cut_off_distance = float(cut_off_distance)
+            self.array_names[float(cut_off_distance)] = interaction_types
+            keys2pop.append(cut_off_distance)
+        for key in keys2pop:
+            self.array_names.pop(key)
+
+        for cut_off_distance, interaction_types in self.array_names.items():            
             for interaction_type, cdf_types in interaction_types.items():
                 for cdf_type, array_name in cdf_types.items():
                     self.combined_data[cut_off_distance][interaction_type][cdf_type] = arrays_dict[array_name]
@@ -260,13 +268,14 @@ class ExperimentRunner():
                 self.failed_replications.append(seed)
                 self._update_files_after_sim(seed, scen_filename, False)
                 continue
+
             self.logger.info('Simulation done. Processing data... ')
             # Process output accessing it directly via the nomad_model instance
             self._process_data(nomad_model)
             self.successful_replication_count += 1
             self.successful_replications.append(seed)
             self._update_files_after_sim(seed, nomad_model.outputManager.scenarioFilename, True)
-            del nomad_model     
+            del nomad_model
             self.logger.info('done')
             
             if self.replication_nr - self.failed_replication_count == self.last_convergence_check + self.convergence_config['steps']:
