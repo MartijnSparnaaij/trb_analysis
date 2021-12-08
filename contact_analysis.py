@@ -109,6 +109,7 @@ def run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, conver
         else:
             exp_runner.init_experiment()
         exp_runner.run_experiment()
+        continue_from_file = False
         
     return exp_runners
     
@@ -224,7 +225,6 @@ class ExperimentRunner():
         arrays_dict = num_data['arrays'].item()
         indices_dict = num_data['indices'].item() 
 
-        keys2pop = []
         for cut_off_distance, interaction_types in list(self.array_names.items()):
             self.array_names[float(cut_off_distance)] = interaction_types
             self.array_names.pop(cut_off_distance)
