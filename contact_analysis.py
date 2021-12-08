@@ -103,9 +103,14 @@ def run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, conver
         logger.info(f'Starting experiments for {scenario_filename}')        
         exp_runner = ExperimentRunner(scenario_filename, lrcm_filename, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
         exp_runners.append(exp_runner)
+        
+        
         if continue_from_file:
-            experiment_config = exp_runner.get_experiment_config()          
-            exp_runner.init_experiment_from_state(experiment_config)
+            experiment_config = exp_runner.get_experiment_config()       
+            if experiment_config is None:
+                exp_runner.init_experiment()
+            else:               
+                exp_runner.init_experiment_from_state(experiment_config)
         else:
             exp_runner.init_experiment()
         exp_runner.run_experiment()
@@ -421,6 +426,9 @@ class ExperimentRunner():
             output_folder.mkdir(parents=True)
         
         self.experiment_config_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_experiment.config.json')
+
+        if not self.experiment_config_filename.is_file():
+            return None
 
         with open(self.experiment_config_filename, 'r') as f:
             experiment_config = json.load(f)
