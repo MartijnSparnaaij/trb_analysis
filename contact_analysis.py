@@ -100,7 +100,7 @@ def run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, conver
     
     for scenario_index in range(start_index, len(scenario_filenames)):
         scenario_filename = scenario_filenames[scenario_index]
-        save_dict = {'main_dir': main_dir, 'filenames':[str(scenario_filename.relative_to(main_dir)) for scenario_filename in scenario_filenames], 'current_filename':str(scenario_filename.relative_to(main_dir)), 'lrcm_filename':str(lrcm_filename.relative_to(main_dir)), 'log_dir':str(log_dir.relative_to(main_dir)), 'log_name':log_name, 'convergence_config':convergence_config, 'cut_off_distances':cut_off_distances, 'max_replications':max_replications, 'init_replications':init_replications}
+        save_dict = {'main_dir': str(main_dir), 'filenames':[str(scenario_filename.relative_to(main_dir)) for scenario_filename in scenario_filenames], 'current_filename':str(scenario_filename.relative_to(main_dir)), 'lrcm_filename':str(lrcm_filename.relative_to(main_dir)), 'log_dir':str(log_dir.relative_to(main_dir)), 'log_name':log_name, 'convergence_config':convergence_config, 'cut_off_distances':cut_off_distances, 'max_replications':max_replications, 'init_replications':init_replications}
     
         with open(experiments_state_filename, 'w') as f:
             json.dump(save_dict, f, indent=4)    
