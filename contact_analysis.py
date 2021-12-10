@@ -18,9 +18,10 @@ import NOMAD
 from NOMAD.activity_scheduler import STAFF_GROUP_NAME
 from NOMAD.constants import TIMESTEP_MSG_ID, SEND_TIME_MSG_INTERVAL_SEC
 from NOMAD.nomad_model import onlyCreate
-from NOMAD.output_manager import BasicFileOutputManager
+from NOMAD.output_manager import BasicFileOutputManager, ConnectivityFileOutputManager
 from NOMAD.xml_scenario_input import getOutputFolder
 import numpy as np
+from pickle import FALSE
 
 
 
@@ -52,6 +53,7 @@ ARRAY_NAMES_DICT_FLD = 'arrayNamesDict'
 INDICES_FLD = 'indices' 
 
 EXPERIMENT_CONFIG_FILE_ATTRS = (
+    'main_dir',
     'scenario_filename',
     'lrcm_filename',
     'combined_stats_filename',
@@ -93,15 +95,18 @@ def run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, conver
         
     experiments_state_filename = log_dir.joinpath(f'{log_name}_experiments.state.json')
     
+    base_output_folder = getOutputFolder(scenario_filenames[0])
+    main_dir = get_main_dir([base_output_folder, scenario_filenames[0], log_dir])
+    
     for scenario_index in range(start_index, len(scenario_filenames)):
         scenario_filename = scenario_filenames[scenario_index]
-        save_dict = {'filenames':[str(scenario_filename) for scenario_filename in scenario_filenames], 'current_filename':str(scenario_filename), 'lrcm_filename':str(lrcm_filename), 'log_dir':str(log_dir), 'log_name':log_name, 'convergence_config':convergence_config, 'cut_off_distances':cut_off_distances, 'max_replications':max_replications, 'init_replications':init_replications}
+        save_dict = {'main_dir': main_dir, 'filenames':[str(scenario_filename.relative_to(main_dir)) for scenario_filename in scenario_filenames], 'current_filename':str(scenario_filename.relative_to(main_dir)), 'lrcm_filename':str(lrcm_filename.relative_to(main_dir)), 'log_dir':str(log_dir.relative_to(main_dir)), 'log_name':log_name, 'convergence_config':convergence_config, 'cut_off_distances':cut_off_distances, 'max_replications':max_replications, 'init_replications':init_replications}
     
         with open(experiments_state_filename, 'w') as f:
             json.dump(save_dict, f, indent=4)    
         
         logger.info(f'Starting experiments for {scenario_filename}')        
-        exp_runner = ExperimentRunner(scenario_filename, lrcm_filename, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
+        exp_runner = ExperimentRunner(main_dir, scenario_filename, lrcm_filename, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
         exp_runners.append(exp_runner)
         
         
@@ -123,43 +128,27 @@ def continue_experiments(experiments_config_filename):
     with open(experiments_config_filename, 'r') as f:
         experiment_config = json.load(f)
         
-    scenario_filenames = [Path(scenario_filename) for scenario_filename in experiment_config['filenames']]
-    lrcm_filename = Path(experiment_config['lrcm_filename'])
-    log_dir = Path(experiment_config['log_dir'])
+    main_dir = Path(experiment_config['main_dir'])
+    scenario_filenames = [main_dir.joinpath(scenario_filename) for scenario_filename in experiment_config['filenames']]
+    lrcm_filename = main_dir.joinpath(experiment_config['lrcm_filename'])
+    log_dir = main_dir.joinpath(experiment_config['log_dir'])
     log_name = experiment_config['log_name']
     convergence_config = experiment_config['convergence_config']
     cut_off_distances = experiment_config['cut_off_distances']
     max_replications = experiment_config['max_replications']
     init_replications = experiment_config['init_replications']
     
-    current_filename = Path(experiment_config['current_filename'])
+    current_filename = main_dir.joinpath(experiment_config['current_filename'])
     start_index = scenario_filenames.index(current_filename)
             
     run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications, start_index=start_index, continue_from_file=True)
-        
-    
-def start_experiment(scenario_filename, lrcm_filename, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
-    exp_runner = ExperimentRunner(scenario_filename, lrcm_filename, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
-    exp_runner.init_experiment()
-    exp_runner.run_experiment()
-    return exp_runner
 
-def continue_experiment(experiment_config_filename):
-    with open(experiment_config_filename, 'r') as f:
-        experiment_config = json.load(f)
-        
-    exp_runner = ExperimentRunner(experiment_config['scenario_filename'], experiment_config['lrcm_filename'], 
-                                  experiment_config['convergence_config'], experiment_config['cut_off_distances'], 
-                                  experiment_config['max_replications'], experiment_config['init_replications'])    
-
-    exp_runner.init_experiment_from_state(experiment_config)
-    exp_runner.run_experiment()
-    return exp_runner
 
 class ExperimentRunner():
     
-    def __init__(self, scenario_filename, lrcm_filename, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
+    def __init__(self, main_dir, scenario_filename, lrcm_filename, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
         self.logger = logging.getLogger(log_name)
+        self.main_dir = main_dir
         self.scenario_filename = Path(scenario_filename)
         self.lrcm_filename = Path(lrcm_filename)
         self.convergence_config = convergence_config
@@ -178,20 +167,28 @@ class ExperimentRunner():
 
         #pub.subscribe(self._update_time, TIMESTEP_MSG_ID)
             
-    def init_experiment(self):
-        base_output_folder = getOutputFolder(self.scenario_filename)
+    def init_experiment(self, recreated=False, seeds_resevoir=None, base_output_folder=None):
+        if base_output_folder is None:
+            base_output_folder = getOutputFolder(self.scenario_filename)
         output_folder = base_output_folder.joinpath('summarized') 
         if not output_folder.is_dir():
             output_folder.mkdir(parents=True)
         
-        self.experiment_config_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_experiment.config.json')
-        self.simulations_summary_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_simulations_summary.res')
-        self.experiment_state_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_experiment.state.json')
-        self.combined_stats_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_combined.stats.npz')            
-                 
-        rng = np.random.default_rng()
-        self.seeds_resevoir = rng.choice(np.arange(1,self.max_replications*2), self.max_replications, False).tolist()
+        if recreated:
+            recreated_str = '_recreated'
+        else:  
+            recreated_str = ''
+            
+        self.experiment_config_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_experiment{recreated_str}.config.json')
+        self.simulations_summary_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_simulations_summary{recreated_str}.res')
+        self.experiment_state_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_experiment{recreated_str}.state.json')
+        self.combined_stats_filename = output_folder.joinpath(f'{self.scenario_filename.stem}_combined{recreated_str}.stats.npz')            
         
+        if seeds_resevoir is None:
+            rng = np.random.default_rng()
+            self.seeds_resevoir = rng.choice(np.arange(1,self.max_replications*2), self.max_replications, False).tolist()
+        else:
+            self.seeds_resevoir = seeds_resevoir 
         self.array_names = {cut_off_distance:{
                             STAFF_CUSTOMER:{cdf_type:get_array_field_name(cut_off_distance, STAFF_CUSTOMER, cdf_type) for cdf_type in CDF_TYPES}, 
                             CUSTOMER_CUSTOMER:{cdf_type:get_array_field_name(cut_off_distance, CUSTOMER_CUSTOMER, cdf_type) for cdf_type in CDF_TYPES},
@@ -210,10 +207,12 @@ class ExperimentRunner():
         self._create_simulations_summary_file()
             
     def init_experiment_from_state(self, experiment_config):
-        self.combined_stats_filename = Path(experiment_config['combined_stats_filename'])
-        self.simulations_summary_filename = Path(experiment_config['simulations_summary_filename'])
-        self.experiment_state_filename = Path(experiment_config['experiment_state_filename'])
-        self.array_names = experiment_config['array_names']
+        self.combined_stats_filename = self.main_dir.joinpath(experiment_config['combined_stats_filename'])
+        self.simulations_summary_filename = self.main_dir.joinpath(experiment_config['simulations_summary_filename'])
+        self.experiment_state_filename = self.main_dir.joinpath(experiment_config['experiment_state_filename'])
+        for cut_off_distance, interaction_types in list(experiment_config['array_names'].items()):
+            self.array_names[float(cut_off_distance)] = interaction_types
+        
         self.seeds_resevoir = experiment_config['seeds_resevoir']    
     
         with open(self.experiment_state_filename, 'r') as f:
@@ -229,10 +228,6 @@ class ExperimentRunner():
         num_data = np.load(self.combined_stats_filename, allow_pickle=True)
         arrays_dict = num_data['arrays'].item()
         indices_dict = num_data['indices'].item() 
-
-        for cut_off_distance, interaction_types in list(self.array_names.items()):
-            self.array_names[float(cut_off_distance)] = interaction_types
-            self.array_names.pop(cut_off_distance)
 
         for cut_off_distance, interaction_types in self.array_names.items():            
             for interaction_type, cdf_types in interaction_types.items():
@@ -281,19 +276,9 @@ class ExperimentRunner():
             del nomad_model
             self.logger.info('done')
             
-            if self.replication_nr - self.failed_replication_count == self.last_convergence_check + self.convergence_config['steps']:
-                # Check convergence
-                self.logger.info('Checking convergence...')
-                p_values, has_converged = self._check_convergence()                 
-                self.last_convergence_stats = p_values
-                self._update_experiment_state_file()    
-                self.logger.info('done')
-                if has_converged:                    
-                    self.logger.info(f'{"="*40}\n')
-                    self.logger.info(f'FINISHED!!!!!!!!!!\n')
-                    self.logger.info(f'{"="*40}')
-                    break 
-            
+            has_converged = self._check_convergence()
+            if has_converged:
+                break
             self.replication_nr += 1            
             
     def _process_data(self, nomad_model, connections=None, ID_2_group_ID=None, time_step=None):
@@ -332,20 +317,37 @@ class ExperimentRunner():
         self.combined_data_indices[cut_off_distance][interaction_type][cdf_type].append(len(self.combined_data[cut_off_distance][interaction_type][cdf_type]))
 
     def _check_convergence(self):
+        if self.replication_nr - self.failed_replication_count == self.last_convergence_check + self.convergence_config['steps']:
+            # Check convergence
+            self.logger.info('Checking convergence...')
+            p_values, has_converged = self._check_convergence_for_arrays()                 
+            self.last_convergence_stats = p_values
+            self._update_experiment_state_file()    
+            self.logger.info('done')
+            if has_converged:                    
+                self.logger.info(f'{"="*40}\n')
+                self.logger.info(f'FINISHED!!!!!!!!!!\n')
+                self.logger.info(f'{"="*40}')
+            
+            return has_converged                                
+        return False
+    
+    def _check_convergence_for_arrays(self):
         p_values = {}
         has_converged = True
         for cut_off_distance, interaction_types in self.combined_data.items():
             for interaction_type, cdf_types in interaction_types.items():
                 for cdf_type, array in cdf_types.items():
                     array_indices = self.combined_data_indices[cut_off_distance][interaction_type][cdf_type]
-                    p_values_local, has_converged_local = self._check_convergence_for_array(array, array_indices)
+                    is_counts_array = cdf_type == CONTACTS_OVER_AGENTS
+                    p_values_local, has_converged_local = self._check_convergence_for_array(array, array_indices, is_counts_array)
                     has_converged = has_converged and has_converged_local
                     array_name = self.array_names[cut_off_distance][interaction_type][cdf_type]
                     p_values[array_name] = p_values_local
         
         return p_values, has_converged
         
-    def _check_convergence_for_array(self, array, array_indices):
+    def _check_convergence_for_array(self, array, array_indices, is_counts_array=False):
         p_values = []
         base_array = array[:array_indices[-1]]
         for ii in range(2,self.convergence_config[STEPS] + 2):
@@ -353,8 +355,12 @@ class ExperimentRunner():
             if len(base_array) < 2 or len(compare_array) < 2:
                 continue
             
-            res = stats.cramervonmises_2samp(base_array, compare_array)
-            p_values.append(res.pvalue)
+            if is_counts_array:
+                p_value = do_chi_square_test(base_array, compare_array)
+                p_values.append(p_value)
+            else:
+                res = stats.cramervonmises_2samp(base_array, compare_array)
+                p_values.append(res.pvalue)
             base_array = compare_array
         
         has_converged = len(p_values) == self.convergence_config[STEPS]
@@ -372,7 +378,10 @@ class ExperimentRunner():
         for attr_name in EXPERIMENT_CONFIG_FILE_ATTRS:
             attr_value = getattr(self, attr_name)
             if isinstance(attr_value, Path):
-                attr_value = str(attr_value)
+                if attr_value == self.main_dir:
+                    attr_value = str(attr_value)
+                else:
+                    attr_value = str(attr_value.relative_to(self.main_dir))
             save_dict[attr_name] = attr_value
 
         with open(self.experiment_config_filename, 'w') as f:
@@ -400,8 +409,13 @@ class ExperimentRunner():
             json.dump(save_dict, f, indent=4)     
 
     def _update_simulations_summary_file(self, seed, scen_filename, success):
+        try:
+            scen_filename_str = str(get_relative_path_to(scen_filename, self.simulations_summary_filename))
+        except:
+            scen_filename_str = str(scen_filename)
+        
         with open(self.simulations_summary_filename, 'a') as f:
-            f.write(f'{seed}, {str(scen_filename)}, {success}\n') 
+            f.write(f'{seed}, {scen_filename_str}, {success}\n') 
     
     def _update_combined_stats_file(self):
         arrays = {}
@@ -437,47 +451,83 @@ class ExperimentRunner():
 
     # ====================================================================================================
 
-    def recreate_from_folder(self):
+    def recreate_from_folder(self, seeds_resevoir, base_output_folder, last_seed=None):
         # Get a scenario file from folder
         # Get time step from file
         # Get all conncetion files 
         # Process all files
-        scen_filenames = get_scenario_files_from_dir(self.data_folder)
-        self.replication_nr = 0
+        self.init_experiment(recreated=True, seeds_resevoir=seeds_resevoir, base_output_folder=base_output_folder)
         self.last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
-        self.failed_count = 0
-        print(len(scen_filenames))
-    
-        for scen_filename in scen_filenames:
+        scen_filenames = get_scenario_files_from_dir(base_output_folder)
+        scen_filename_seed = {get_seed_from_filename(scen_filename):scen_filename for scen_filename in scen_filenames}
+               
+        for self.replication_nr, seed in enumerate(self.seeds_resevoir):
+            if last_seed is not None and seed == last_seed:
+                stop_after = True
+            else:
+                stop_after = False
+                
+            self.logger.info(f'Processing {self.replication_nr} with seed = {seed}')   
             try:
-                self.logger.info(f'{self.replication_nr:04d} - {scen_filename} ...')
-                time_step, seed, connections, ID_2_group_ID = load_data(scen_filename)
+                scen_filename = scen_filename_seed[seed]
+                time_step, _, connections, ID_2_group_ID = load_data(scen_filename)
             except:
                 self.logger.info('FAILED')
                 traceback.print_exc()
                 self.logger.info('')
-                self._update_info_after_failed(get_seed_from_filename(scen_filename))                           
+                self.failed_replication_count += 1
+                self.failed_replications.append(seed)
+                try: 
+                    self._update_files_after_sim(seed, scen_filename, False)
+                except:
+                    self._update_files_after_sim(seed, '', False)
                 continue
             
+            self.logger.info('Loading done. Processing data... ')
             self._process_data(None, connections, ID_2_group_ID, time_step)
             
-            self._update_info_after_success(seed, scen_filename)
+            self.successful_replication_count += 1
+            self.successful_replications.append(seed)
+            self._update_files_after_sim(seed, scen_filename, True)
             self.logger.info('done')
-            if self.replication_nr == self.last_convergence_check + self.convergence_config['steps']:
-                # Check convergence
-                self.logger.info('Checking convergence... ')
-                p_values, _ = self._check_convergence() 
-                self._update_info_after_convergence_check(p_values)
-                self.logger.info('done')                
-
-            self._save_data_2_file()
-            self.replication_nr += 1
             
-            
-    
+            has_converged = self._check_convergence()
+            if has_converged or stop_after:
+                break
             
 # ========================================================================================================
 # ========================================================================================================       
+    
+def recreate_from_folder(experiment_config_filename, base_output_folder=None, last_seed=None):
+    # Get a scenario file from folder
+    # Get time step from file
+    # Get all conncetion files 
+    # Process all files
+    log_name = 'recreation'
+    createLoggers(None, log_name)
+    with open(experiment_config_filename, 'r') as f:
+        experiment_config = json.load(f)
+    
+    scenario_filename = Path(experiment_config['scenario_filename'])
+    lrcm_filename = Path(experiment_config['lrcm_filename'])
+    convergence_config = experiment_config['convergence_config']
+    cut_off_distances = experiment_config['cut_off_distances']
+    max_replications = experiment_config['max_replications']
+    init_replications = experiment_config['init_replications']
+    seeds_resevoir = experiment_config['seeds_resevoir']
+      
+    try:
+        main_dir = Path(experiment_config['main_dir'])
+    except:
+        main_dir = get_main_dir([scenario_filename, Path(experiment_config['simulations_summary_filename'])])
+     
+    exp_runner = ExperimentRunner(main_dir, scenario_filename, lrcm_filename, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
+    exp_runner.recreate_from_folder(seeds_resevoir, base_output_folder, last_seed)
+    
+def get_connection_files_from_dir(data_folder):
+    scen_ext = f'.{ConnectivityFileOutputManager.CONNECTIVITY_EXTENSION}.npz'
+    return sorted([entry for entry in data_folder.iterdir() if entry.is_file() and entry.suffix == scen_ext])
+
         
 def continue_from_file(experiment_filename, combined_stats_filename):
     # Load experiment file
@@ -585,6 +635,25 @@ def convert_conn_file(conn_filename):
 def get_seed_from_filename(filename):
     return int(filename.stem.split('_')[-1])
 
+def do_chi_square_test(base_array, compare_array):
+    base_values, base_counts = np.unique(base_array, return_counts=True)
+    base_counts = base_counts/sum(base_counts)
+    base_counts_dict = dict(zip(base_values, base_counts))
+    compare_values, compare_counts = np.unique(compare_array, return_counts=True)
+    compare_counts = compare_counts/sum(compare_counts)
+    compare_counts_dict = dict(zip(compare_values, compare_counts))
+    values = np.unique(np.concatenate((base_values, compare_values)))
+    
+    
+    base_counts = [base_counts_dict[value] if value in base_counts_dict else 0 for value in values]
+    compare_counts = [compare_counts_dict[value] if value in compare_counts_dict else 0 for value in values]
+    
+    if len(values) == 1:
+        return 1.0
+    
+    res = stats.chisquare(compare_counts, base_counts)
+    return res.pvalue    
+
 def compute_weighted_graph(cut_off_distances, connections, ID_2_group_ID, time_step):      
     weigths_per_connection = {cut_off_distance:{STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[]} for cut_off_distance in cut_off_distances}
     weigths_per_agent = {cut_off_distance:{STAFF_CUSTOMER:defaultdict(float), CUSTOMER_CUSTOMER:defaultdict(float), CUSTOMER_STAFF:defaultdict(float)} for cut_off_distance in cut_off_distances}
@@ -678,10 +747,7 @@ def get_contacts_longer_than_value(data_folder, boundary_value, cut_off_distance
 def createLoggers(log_dir, log_name):
     logger = logging.getLogger(log_name)
     logger.setLevel(logging.DEBUG)
-
-    log_dir = Path(log_dir)
-    if not log_dir.is_dir():
-        log_dir.mkdir(parents=True)
+    logger.propagate = False
 
     formatter = logging.Formatter("{asctime} - {name} - {levelname} - {message}", '%Y/%m/%d %H:%M:%S', style='{')
     
@@ -690,12 +756,67 @@ def createLoggers(log_dir, log_name):
     stream_handler.setFormatter(formatter)
     logger.addHandler(stream_handler)
 
+    if log_dir is None:
+        return logger
+    
+    log_dir = Path(log_dir)
+    if not log_dir.is_dir():
+        log_dir.mkdir(parents=True)
+
     log_filename = log_dir.joinpath(f'{log_name}.log')
     file_handeler = logging.handlers.RotatingFileHandler(log_filename, maxBytes=1024*1024*30, backupCount=10)
     file_handeler.setFormatter(formatter)
     file_handeler.setLevel(logging.INFO)
     logger.addHandler(file_handeler)
     
-    logger.propagate = False
-    
     return logger
+
+# =============================================================
+
+def get_main_dir(path_list):
+    for main_dir in path_list[0].parents:
+        is_relative_to_all = True
+        for path_el in path_list:
+            if not path_el.is_relative_to(main_dir):
+                is_relative_to_all = False
+                break
+            
+        if is_relative_to_all:
+            return main_dir
+    
+    raise Exception('The provided paths have no common parent')
+
+def get_relative_path_to(main_path, reference_path):
+    if reference_path.is_file():
+        reference_path = reference_path.parent
+    
+    if main_path.is_relative_to(reference_path):
+        return main_path.relative_to(reference_path)
+        
+    for parent_ind, parent_dir in enumerate(reference_path.parents):
+        if main_path.is_relative_to(parent_dir):
+            relative_path = main_path.relative_to(parent_dir)
+            for _ in range(parent_ind + 1):
+                relative_path = Path('../').joinpath(relative_path)
+            return relative_path
+                
+    raise Exception('The provided paths have no common parent')
+
+# ================================================================================================
+def start_experiment(scenario_filename, lrcm_filename, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
+    exp_runner = ExperimentRunner(scenario_filename, lrcm_filename, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
+    exp_runner.init_experiment()
+    exp_runner.run_experiment()
+    return exp_runner
+
+def continue_experiment(experiment_config_filename):
+    with open(experiment_config_filename, 'r') as f:
+        experiment_config = json.load(f)
+        
+    exp_runner = ExperimentRunner(experiment_config['scenario_filename'], experiment_config['lrcm_filename'], 
+                                  experiment_config['convergence_config'], experiment_config['cut_off_distances'], 
+                                  experiment_config['max_replications'], experiment_config['init_replications'])    
+
+    exp_runner.init_experiment_from_state(experiment_config)
+    exp_runner.run_experiment()
+    return exp_runner
