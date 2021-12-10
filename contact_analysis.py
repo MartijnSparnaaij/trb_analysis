@@ -325,7 +325,8 @@ class ExperimentRunner():
             self.logger.info('Checking convergence...')
             p_values, has_converged = self._check_convergence_for_arrays()                 
             self.last_convergence_stats = p_values
-            self._update_experiment_state_file()    
+            self._update_experiment_state_file()
+            self.last_convergence_check = self.replication_nr    
             self.logger.info('done')
             if has_converged:                    
                 self.logger.info(f'{"="*40}\n')
