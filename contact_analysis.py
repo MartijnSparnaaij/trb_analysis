@@ -127,18 +127,25 @@ def run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, conver
 def continue_experiments(experiments_config_filename):
     with open(experiments_config_filename, 'r') as f:
         experiment_config = json.load(f)
-        
-    main_dir = Path(experiment_config['main_dir'])
-    scenario_filenames = [main_dir.joinpath(scenario_filename) for scenario_filename in experiment_config['filenames']]
-    lrcm_filename = main_dir.joinpath(experiment_config['lrcm_filename'])
-    log_dir = main_dir.joinpath(experiment_config['log_dir'])
+    
+    if 'main_dir' in experiment_config:
+        main_dir = Path(experiment_config['main_dir'])
+        scenario_filenames = [main_dir.joinpath(scenario_filename) for scenario_filename in experiment_config['filenames']]
+        lrcm_filename = main_dir.joinpath(experiment_config['lrcm_filename'])
+        log_dir = main_dir.joinpath(experiment_config['log_dir'])
+        current_filename = main_dir.joinpath(experiment_config['current_filename'])
+    else:
+        scenario_filenames = [Path(scenario_filename) for scenario_filename in experiment_config['filenames']]
+        lrcm_filename = Path(experiment_config['lrcm_filename'])
+        log_dir = Path(experiment_config['log_dir'])
+        current_filename = Path(experiment_config['current_filename'])      
+    
     log_name = experiment_config['log_name']
     convergence_config = experiment_config['convergence_config']
     cut_off_distances = experiment_config['cut_off_distances']
     max_replications = experiment_config['max_replications']
     init_replications = experiment_config['init_replications']
     
-    current_filename = main_dir.joinpath(experiment_config['current_filename'])
     start_index = scenario_filenames.index(current_filename)
             
     run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications, start_index=start_index, continue_from_file=True)
