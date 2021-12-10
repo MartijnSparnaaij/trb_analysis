@@ -174,6 +174,8 @@ class ExperimentRunner():
         if not output_folder.is_dir():
             output_folder.mkdir(parents=True)
         
+        self._base_output_folder = base_output_folder
+        
         if recreated:
             recreated_str = '_recreated'
         else:  
@@ -205,6 +207,7 @@ class ExperimentRunner():
         self._create_experiment_config_file()
         self._create_experiment_state_file()
         self._create_simulations_summary_file()
+        
             
     def init_experiment_from_state(self, experiment_config):
         self.combined_stats_filename = self.main_dir.joinpath(experiment_config['combined_stats_filename'])
@@ -451,14 +454,14 @@ class ExperimentRunner():
 
     # ====================================================================================================
 
-    def recreate_from_folder(self, seeds_resevoir, base_output_folder, last_seed=None):
+    def recreate_from_folder(self, seeds_resevoir, base_output_folder=None, last_seed=None):
         # Get a scenario file from folder
         # Get time step from file
         # Get all conncetion files 
         # Process all files
         self.init_experiment(recreated=True, seeds_resevoir=seeds_resevoir, base_output_folder=base_output_folder)
         self.last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
-        scen_filenames = get_scenario_files_from_dir(base_output_folder)
+        scen_filenames = get_scenario_files_from_dir(self._base_output_folder)
         scen_filename_seed = {get_seed_from_filename(scen_filename):scen_filename for scen_filename in scen_filenames}
                
         for self.replication_nr, seed in enumerate(self.seeds_resevoir):
