@@ -8,6 +8,7 @@ from copy import deepcopy
 import json
 import logging
 from math import ceil, floor
+from multiprocessing import Pool
 from pathlib import Path
 import traceback
 
@@ -21,8 +22,6 @@ from NOMAD.nomad_model import onlyCreate
 from NOMAD.output_manager import BasicFileOutputManager, ConnectivityFileOutputManager
 from NOMAD.xml_scenario_input import getOutputFolder
 import numpy as np
-from pickle import FALSE
-
 
 
 
@@ -68,6 +67,7 @@ EXPERIMENT_CONFIG_FILE_ATTRS = (
     )
 
 EXPERIMENT_STATE_FILE_ATTRS = (
+    'has_converged',
     'successful_replication_count',
     'failed_replication_count',
     'replication_nr',
@@ -79,10 +79,10 @@ EXPERIMENT_STATE_FILE_ATTRS = (
 #LOGGER_NAME = 'contact_experiment'
    
 
-def start_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
-    run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
+def start_experiments(scenario_filenames, lrcm_filename_per_scenario, log_dir, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
+    run_experiments(scenario_filenames, lrcm_filename_per_scenario, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
 
-def run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications, start_index=0, continue_from_file=False):
+def run_experiments(scenario_filenames, lrcm_filename_per_scenario, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications, continue_from_file=False):
     createLoggers(log_dir, log_name)
     logger = logging.getLogger(log_name)
     
@@ -95,61 +95,70 @@ def run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, conver
         
     experiments_state_filename = log_dir.joinpath(f'{log_name}_experiments.state.json')
     
-    base_output_folder = getOutputFolder(scenario_filenames[0])
-    main_dir = get_main_dir([base_output_folder, scenario_filenames[0], log_dir])
+    base_output_folders = [getOutputFolder(scenario_filename) for scenario_filename in scenario_filenames]
+    main_dir = get_main_dir(base_output_folders + scenario_filenames + [log_dir])
+    seeds_resevoir = create_seed_resevoir(max_replications)
     
-    for scenario_index in range(start_index, len(scenario_filenames)):
-        scenario_filename = scenario_filenames[scenario_index]
-        save_dict = {'main_dir': str(main_dir), 'filenames':[str(scenario_filename.relative_to(main_dir)) for scenario_filename in scenario_filenames], 'current_filename':str(scenario_filename.relative_to(main_dir)), 'lrcm_filename':str(lrcm_filename.relative_to(main_dir)), 'log_dir':str(log_dir.relative_to(main_dir)), 'log_name':log_name, 'convergence_config':convergence_config, 'cut_off_distances':cut_off_distances, 'max_replications':max_replications, 'init_replications':init_replications}
+    for scenario_filename in scenario_filenames:
+        save_dict = {'main_dir': str(main_dir), 'filenames':[str(scenario_filename.relative_to(main_dir)) for scenario_filename in scenario_filenames], 'lrcm_filename_per_scenario':{str(scenario):str(lrcm_filenanme.relative_to(main_dir)) for scenario, lrcm_filenanme in lrcm_filename_per_scenario.items()}, 'log_dir':str(log_dir.relative_to(main_dir)), 'log_name':log_name, 'convergence_config':convergence_config, 'cut_off_distances':cut_off_distances, 'max_replications':max_replications, 'init_replications':init_replications}
     
         with open(experiments_state_filename, 'w') as f:
             json.dump(save_dict, f, indent=4)    
         
-        logger.info(f'Starting experiments for {scenario_filename}')        
-        exp_runner = ExperimentRunner(main_dir, scenario_filename, lrcm_filename, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
+        logger.info(f'Creating experiment runner for {scenario_filename}')        
+        exp_runner = ExperimentRunner(main_dir, scenario_filename, lrcm_filename_per_scenario[scenario_filename.stem], log_name, convergence_config, cut_off_distances, max_replications, init_replications)
         exp_runners.append(exp_runner)
-        
-        
+
         if continue_from_file:
             experiment_config = exp_runner.get_experiment_config()       
-            if experiment_config is None:
-                exp_runner.init_experiment()
-            else:               
-                exp_runner.init_experiment_from_state(experiment_config)
+            exp_runner.init_experiment_from_state(experiment_config)
         else:
-            exp_runner.init_experiment()
-        exp_runner.run_experiment()
-        continue_from_file = False
-        
-    return exp_runners
+            exp_runner.init_experiment(seeds_resevoir=seeds_resevoir)
+            
     
+    if continue_from_file:
+        pass        
+    else:
+        with Pool(processes=3) as pool:
+            pool.map(do_initial_replication, exp_runners)
+            
+    # If continue_from_file finish current replication step
+    for exp_runner in exp_runners:
+        print(f'{exp_runner.scenario_filename.stem} - {exp_runner.successful_replication_count} - {exp_runner.replication_nr}')
+    #while not _all_have_converged(exp_runners):      
+    #          
+    #    for exp_runner in exp_runners:
+    #        exp_runner.do_one_convergence_step()
+    # 
+    return exp_runners
 
+def do_initial_replication(exp_runner):
+    exp_runner.do_initial_replications()
+    
+def _all_have_converged(exp_runners):
+    for exp_runner in exp_runners:
+        if not exp_runner.has_converged:
+            return False
+    
+    return True
+    
 def continue_experiments(experiments_config_filename):
     with open(experiments_config_filename, 'r') as f:
         experiment_config = json.load(f)
     
-    if 'main_dir' in experiment_config:
-        main_dir = Path(experiment_config['main_dir'])
-        scenario_filenames = [main_dir.joinpath(scenario_filename) for scenario_filename in experiment_config['filenames']]
-        lrcm_filename = main_dir.joinpath(experiment_config['lrcm_filename'])
-        log_dir = main_dir.joinpath(experiment_config['log_dir'])
-        current_filename = main_dir.joinpath(experiment_config['current_filename'])
-    else:
-        scenario_filenames = [Path(scenario_filename) for scenario_filename in experiment_config['filenames']]
-        lrcm_filename = Path(experiment_config['lrcm_filename'])
-        log_dir = Path(experiment_config['log_dir'])
-        current_filename = Path(experiment_config['current_filename'])      
-    
+    main_dir = Path(experiment_config['main_dir'])
+    scenario_filenames = [main_dir.joinpath(scenario_filename) for scenario_filename in experiment_config['filenames']]
+    lrcm_filename_per_scenario = {}
+    for scenario, lrcm_filename in experiment_config['lrcm_filename_per_scenario'].items():
+        lrcm_filename_per_scenario[scenario] = main_dir.joinpath(lrcm_filename)
+    log_dir = main_dir.joinpath(experiment_config['log_dir'])
     log_name = experiment_config['log_name']
     convergence_config = experiment_config['convergence_config']
     cut_off_distances = experiment_config['cut_off_distances']
     max_replications = experiment_config['max_replications']
     init_replications = experiment_config['init_replications']
-    
-    start_index = scenario_filenames.index(current_filename)
             
-    run_experiments(scenario_filenames, lrcm_filename, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications, start_index=start_index, continue_from_file=True)
-
+    run_experiments(scenario_filenames, lrcm_filename_per_scenario, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications, continue_from_file=True)
 
 class ExperimentRunner():
     
@@ -162,7 +171,8 @@ class ExperimentRunner():
         self.cut_off_distances = cut_off_distances
         self.max_replications = max_replications
         self.init_replications = init_replications
-
+        self.has_converged = False
+        
         self.combined_data = {cut_off_distance:{STAFF_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES}, 
                                                 CUSTOMER_CUSTOMER:{cdf_type:None for cdf_type in CDF_TYPES},
                                                 CUSTOMER_STAFF:{cdf_type:None for cdf_type in (WEIGHT_OVER_AGENTS, CONTACTS_OVER_AGENTS)}} 
@@ -213,8 +223,7 @@ class ExperimentRunner():
          
         self._create_experiment_config_file()
         self._create_experiment_state_file()
-        self._create_simulations_summary_file()
-        
+        self._create_simulations_summary_file()        
             
     def init_experiment_from_state(self, experiment_config):
         self.combined_stats_filename = self.main_dir.joinpath(experiment_config['combined_stats_filename'])
@@ -234,6 +243,7 @@ class ExperimentRunner():
         self.successful_replications = experiment_state['successful_replications']
         self.failed_replications = experiment_state['failed_replications'] 
         self.replication_nr = experiment_state['replication_nr'] + 1
+        self.has_converged = experiment_state['has_converged']
     
         num_data = np.load(self.combined_stats_filename, allow_pickle=True)
         arrays_dict = num_data['arrays'].item()
@@ -247,6 +257,29 @@ class ExperimentRunner():
     
     def _update_time(self, timeInd, currentTime): # @UnusedVariable
         print('.', end='')
+
+    def do_initial_replications(self):
+        for replication_nr in range(self.init_replications):
+            self.replication_nr = replication_nr
+            self._run_replication()
+            
+        self.replication_nr += 1
+        self.has_converged = self._check_convergence()
+            
+    def continue_convergence_step(self):
+        step_count = self.convergence_config['steps'] - (self.replication_nr % self.convergence_config['steps'])
+        for _ in range(step_count):
+            self._run_replication()
+            self.replication_nr += 1
+            
+        self.has_converged = self._check_convergence()
+            
+    def do_one_convergence_step(self):
+        for _ in range(self.convergence_config['steps']):
+            self._run_replication()
+            self.replication_nr += 1 
+            
+        self.has_converged = self._check_convergence()
             
     def run_experiment(self):
         self.last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
@@ -254,42 +287,48 @@ class ExperimentRunner():
             self.last_convergence_check = floor((self.replication_nr - self.failed_replication_count)/self.convergence_config['steps'])*self.convergence_config['steps']           
         
         while self.replication_nr < self.max_replications:
-            seed = self.seeds_resevoir[self.replication_nr]
-            self.logger.info(f'Running replication {self.replication_nr} with seed = {seed}')            
-            NOMAD.NOMAD_RNG = np.random.default_rng(seed)
-            try:
-                nomad_model = onlyCreate(self.scenario_filename, lrcmLoadFile=self.lrcm_filename, seed=seed)
-                self.logger.info('='*ceil(nomad_model.duration/SEND_TIME_MSG_INTERVAL_SEC))
-                nomad_model.start()
-            except:
-                self.logger.info('FAILED')
-                traceback.print_exc()
-                print('')
-                try:
-                    scen_filename = nomad_model.outputManager.scenarioFilename
-                except:
-                    scen_filename = ''
-                try:
-                    del nomad_model
-                except: pass
-                self.failed_replication_count += 1
-                self.failed_replications.append(seed)
-                self._update_files_after_sim(seed, scen_filename, False)
-                continue
-
-            self.logger.info('Simulation done. Processing data... ')
-            # Process output accessing it directly via the nomad_model instance
-            self._process_data(nomad_model)
-            self.successful_replication_count += 1
-            self.successful_replications.append(seed)
-            self._update_files_after_sim(seed, nomad_model.outputManager.scenarioFilename, True)
-            del nomad_model
-            self.logger.info('done')
+            self._run_replication()
             
             has_converged = self._check_convergence()
             if has_converged:
+                self.has_converged = True
                 break
             self.replication_nr += 1            
+        
+    def _run_replication(self):
+        seed = self.seeds_resevoir[self.replication_nr]
+        self.logger.info(f'Running replication {self.replication_nr} with seed = {seed}')            
+        NOMAD.NOMAD_RNG = np.random.default_rng(seed)
+        try:
+            nomad_model = onlyCreate(self.scenario_filename, lrcmLoadFile=self.lrcm_filename, seed=seed)
+            self.logger.info('='*ceil(nomad_model.duration/SEND_TIME_MSG_INTERVAL_SEC))
+            nomad_model.start()
+        except:
+            self.logger.info('FAILED')
+            traceback.print_exc()
+            print('')
+            try:
+                scen_filename = nomad_model.outputManager.scenarioFilename
+            except:
+                scen_filename = ''
+            try:
+                del nomad_model
+            except: pass
+            self.failed_replication_count += 1
+            self.failed_replications.append(seed)
+            self._update_files_after_sim(seed, scen_filename, False)
+            return
+
+        self.logger.info('Simulation done. Processing data... ')
+        # Process output accessing it directly via the nomad_model instance
+        self._process_data(nomad_model)
+        self.successful_replication_count += 1
+        self.successful_replications.append(seed)
+        self._update_files_after_sim(seed, nomad_model.outputManager.scenarioFilename, True)
+        del nomad_model
+        self.logger.info('done')
+        
+        
             
     def _process_data(self, nomad_model, connections=None, ID_2_group_ID=None, time_step=None):
         if nomad_model is not None:
@@ -812,6 +851,23 @@ def get_relative_path_to(main_path, reference_path):
             return relative_path
                 
     raise Exception('The provided paths have no common parent')
+
+# ================================================================================================
+def create_seed_resevoir(max_replications, return_as_list=True):
+    rng = np.random.default_rng()
+    seed_resevoir = rng.choice(np.arange(1,max_replications*2), max_replications, False)
+    if return_as_list: 
+        return seed_resevoir.tolist()
+    
+    return seed_resevoir
+
+def create_seed_resevoir_file(seeds_filename, max_replications):
+    seeds_resevoir = create_seed_resevoir(max_replications, return_as_list=False)
+    np.save(seeds_filename,seeds_resevoir)
+    print(seeds_filename)
+    
+def get_seed_resevoir_from_file(seeds_filename):
+    return np.load(seeds_filename).tolist()
 
 # ================================================================================================
 def start_experiment(scenario_filename, lrcm_filename, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
