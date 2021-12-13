@@ -14,13 +14,31 @@ from matplotlib import cm
 import numpy as np
 
 
+def get_data_from_files(data_folder):
+    combined_data_files = get_combined_data_files_from_dir(data_folder)
+    
+    contact_data = {}
+    for combined_data_file in combined_data_files:
+        num_data = np.load(combined_data_file, allow_pickle=True)
+        arrays_dict = num_data['arrays'].item()
+        scen_name = combined_data_file.stem.replace('_scenario_combined.stats', '')
+        name_parts = scen_name.split('_')
+        infra_name = '_'.join(name_parts[:2])
+        measure_name = '_'.join(name_parts[2:])
+        contact_data[scen_name] = {'data':arrays_dict, 'infra_name':infra_name, 'measure_name':measure_name}
+    
+    return contact_data
+
+def get_combined_data_files_from_dir(data_folder):
+    scen_exts = ['.stats', '.npz']
+    return sorted([entry for entry in data_folder.iterdir() if entry.is_file() and entry.suffixes == scen_exts])
+
 def get_cdf_of_data(contact_data):
     sorted_data = np.sort(contact_data)
     # calculate the proportional values of samples
     p = 1. * np.arange(len(sorted_data)) / (len(sorted_data) - 1)
     
     return sorted_data, p 
-
 
 def plot_convergence(exp_info_filename):
     with open(exp_info_filename, 'r') as f:
