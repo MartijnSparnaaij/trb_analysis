@@ -7,9 +7,11 @@ from _collections import defaultdict, deque
 from copy import deepcopy
 import json
 import logging
+from logging.handlers import QueueHandler
 from math import ceil, floor
-from multiprocessing import Pool
+import multiprocessing
 from pathlib import Path
+from time import sleep
 import traceback
 
 from pubsub import pub
@@ -98,7 +100,6 @@ def run_experiments(scenario_filenames, lrcm_filename_per_scenario, log_dir, log
     base_output_folders = [getOutputFolder(scenario_filename) for scenario_filename in scenario_filenames]
     main_dir = get_main_dir(base_output_folders + scenario_filenames + [log_dir])
     seeds_resevoir = create_seed_resevoir(max_replications)
-    
     for scenario_filename in scenario_filenames:
         save_dict = {'main_dir': str(main_dir), 'filenames':[str(scenario_filename.relative_to(main_dir)) for scenario_filename in scenario_filenames], 'lrcm_filename_per_scenario':{str(scenario):str(lrcm_filenanme.relative_to(main_dir)) for scenario, lrcm_filenanme in lrcm_filename_per_scenario.items()}, 'log_dir':str(log_dir.relative_to(main_dir)), 'log_name':log_name, 'convergence_config':convergence_config, 'cut_off_distances':cut_off_distances, 'max_replications':max_replications, 'init_replications':init_replications}
     
@@ -115,33 +116,51 @@ def run_experiments(scenario_filenames, lrcm_filename_per_scenario, log_dir, log
         else:
             exp_runner.init_experiment(seeds_resevoir=seeds_resevoir)
             
+    queue = multiprocessing.Queue(-1)
+    listener = multiprocessing.Process(
+        target=listener_process, args=(queue, log_dir, log_name), )
+    listener.start()
+    h = QueueHandler(queue)
+    h.setLevel(logging.INFO)
+    logger.addHandler(h)
     
     if continue_from_file:
         pass        
     else:
-        with Pool(processes=3) as pool:
-            pool.map(do_initial_replication, exp_runners)
+        with multiprocessing.Pool(processes=3, initializer=pool_process_init, initargs=(queue,)) as pool:
+            exp_runners = pool.map(do_initial_replication, exp_runners)
             
     # If continue_from_file finish current replication step
     for exp_runner in exp_runners:
-        print(f'{exp_runner.scenario_filename.stem} - {exp_runner.successful_replication_count} - {exp_runner.replication_nr}')
-    #while not _all_have_converged(exp_runners):      
-    #          
-    #    for exp_runner in exp_runners:
-    #        exp_runner.do_one_convergence_step()
-    # 
+        logger.info(f'{exp_runner.scenario_filename.stem} - {exp_runner.successful_replication_count} - {exp_runner.replication_nr}')
+    while not _all_have_converged(exp_runners):      
+        with multiprocessing.Pool(processes=3, initializer=pool_process_init, initargs=(queue,)) as pool:
+            exp_runners = pool.map(do_one_convergence_step, exp_runners)
+     
     return exp_runners
 
 def do_initial_replication(exp_runner):
-    exp_runner.do_initial_replications()
+    exp_runner.do_initial_replications(do_initial_replication.queue)
+    return exp_runner
     
-def _all_have_converged(exp_runners):
+def do_one_convergence_step(exp_runner):
+    exp_runner.do_one_convergence_step(do_one_convergence_step.queue)
+    return exp_runner
+    
+def _all_have_converged(exp_runners, logger):
+    logger.info('Checking convergence....')
     for exp_runner in exp_runners:
         if not exp_runner.has_converged:
+            logger.info('No convergence')
             return False
     
+    logger.info('CONVERGENCE!!!!')
     return True
     
+def pool_process_init(queue):
+    do_initial_replication.queue = queue
+    do_one_convergence_step.queue = queue
+        
 def continue_experiments(experiments_config_filename):
     with open(experiments_config_filename, 'r') as f:
         experiment_config = json.load(f)
@@ -160,10 +179,20 @@ def continue_experiments(experiments_config_filename):
             
     run_experiments(scenario_filenames, lrcm_filename_per_scenario, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications, continue_from_file=True)
 
+def listener_process(queue, log_dir, log_name):
+    logger = createLoggers(log_dir, log_name)
+    while True:
+        while not queue.empty():
+            record = queue.get()            
+            logger.handle(record)
+        sleep(1)
+
 class ExperimentRunner():
     
-    def __init__(self, main_dir, scenario_filename, lrcm_filename, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
+    def __init__(self, main_dir, scenario_filename, lrcm_filename, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS, queue=None):
         self.logger = logging.getLogger(log_name)
+        self.queue = queue
+        self.log_name = log_name 
         self.main_dir = main_dir
         self.scenario_filename = Path(scenario_filename)
         self.lrcm_filename = Path(lrcm_filename)
@@ -258,28 +287,41 @@ class ExperimentRunner():
     def _update_time(self, timeInd, currentTime): # @UnusedVariable
         print('.', end='')
 
-    def do_initial_replications(self):
+    def config_logger(self, queue):
+        self.logger = logging.getLogger(f'{self.scenario_filename.stem}')
+        self.logger.setLevel(logging.INFO)
+        h = QueueHandler(queue)
+        h.setLevel(logging.INFO)
+        self.logger.addHandler(h) 
+
+    def do_initial_replications(self, queue):
+        self.config_logger(queue)
+        
         for replication_nr in range(self.init_replications):
             self.replication_nr = replication_nr
             self._run_replication()
             
         self.replication_nr += 1
-        self.has_converged = self._check_convergence()
+        self.has_converged = self._check_convergence(force=True)
             
-    def continue_convergence_step(self):
+    def continue_convergence_step(self, queue):
+        self.config_logger(queue)
+        
         step_count = self.convergence_config['steps'] - (self.replication_nr % self.convergence_config['steps'])
         for _ in range(step_count):
             self._run_replication()
             self.replication_nr += 1
             
-        self.has_converged = self._check_convergence()
+        self.has_converged = self._check_convergence(force=True)
             
-    def do_one_convergence_step(self):
+    def do_one_convergence_step(self, queue):
+        self.config_logger(queue)
+        
         for _ in range(self.convergence_config['steps']):
             self._run_replication()
             self.replication_nr += 1 
             
-        self.has_converged = self._check_convergence()
+        self.has_converged = self._check_convergence(force=True)
             
     def run_experiment(self):
         self.last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
@@ -300,11 +342,11 @@ class ExperimentRunner():
         self.logger.info(f'Running replication {self.replication_nr} with seed = {seed}')            
         NOMAD.NOMAD_RNG = np.random.default_rng(seed)
         try:
-            nomad_model = onlyCreate(self.scenario_filename, lrcmLoadFile=self.lrcm_filename, seed=seed)
-            self.logger.info('='*ceil(nomad_model.duration/SEND_TIME_MSG_INTERVAL_SEC))
+            nomad_model = onlyCreate(self.scenario_filename, lrcmLoadFile=self.lrcm_filename, seed=seed, logStreamLevel=None) #
+            #self.logger.info('='*ceil(nomad_model.duration/SEND_TIME_MSG_INTERVAL_SEC))
             nomad_model.start()
         except:
-            self.logger.info('FAILED')
+            self.logger.info(f'{self.replication_nr}: FAILED')
             traceback.print_exc()
             print('')
             try:
@@ -319,16 +361,14 @@ class ExperimentRunner():
             self._update_files_after_sim(seed, scen_filename, False)
             return
 
-        self.logger.info('Simulation done. Processing data... ')
+        self.logger.info(f'{self.replication_nr}: Simulation done. Processing data... ')
         # Process output accessing it directly via the nomad_model instance
         self._process_data(nomad_model)
         self.successful_replication_count += 1
         self.successful_replications.append(seed)
         self._update_files_after_sim(seed, nomad_model.outputManager.scenarioFilename, True)
         del nomad_model
-        self.logger.info('done')
-        
-        
+        self.logger.info(f'{self.replication_nr}: done')
             
     def _process_data(self, nomad_model, connections=None, ID_2_group_ID=None, time_step=None):
         if nomad_model is not None:
@@ -365,10 +405,10 @@ class ExperimentRunner():
             
         self.combined_data_indices[cut_off_distance][interaction_type][cdf_type].append(len(self.combined_data[cut_off_distance][interaction_type][cdf_type]))
 
-    def _check_convergence(self):
-        if self.replication_nr - self.failed_replication_count == self.last_convergence_check + self.convergence_config['steps']:
+    def _check_convergence(self, force=False):
+        if force or (self.replication_nr - self.failed_replication_count == self.last_convergence_check + self.convergence_config['steps']):
             # Check convergence
-            self.logger.info('Checking convergence...')
+            self.logger.info(f'{self.replication_nr}: Checking convergence...')
             p_values, has_converged = self._check_convergence_for_arrays()                 
             self.last_convergence_stats = p_values
             self._update_experiment_state_file()
@@ -376,7 +416,7 @@ class ExperimentRunner():
             self.logger.info('done')
             if has_converged:                    
                 self.logger.info(f'{"="*40}\n')
-                self.logger.info(f'FINISHED!!!!!!!!!!\n')
+                self.logger.info(f'{self.replication_nr}: FINISHED!!!!!!!!!!\n')
                 self.logger.info(f'{"="*40}')
             
             return has_converged                                
@@ -804,6 +844,7 @@ def createLoggers(log_dir, log_name):
     import sys    
     stream_handler = logging.StreamHandler(sys.stdout)
     stream_handler.setFormatter(formatter)
+    stream_handler.setLevel(logging.INFO)
     logger.addHandler(stream_handler)
 
     if log_dir is None:
