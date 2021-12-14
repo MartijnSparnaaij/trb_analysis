@@ -272,7 +272,7 @@ class ExperimentRunner():
         self.last_convergence_stats = experiment_state['last_convergence_stats']
         self.successful_replications = experiment_state['successful_replications']
         self.failed_replications = experiment_state['failed_replications'] 
-        self.replication_nr = experiment_state['replication_nr'] + 1
+        self.replication_nr = experiment_state['replication_nr']
         self.has_converged = experiment_state['has_converged']
     
         num_data = np.load(self.combined_stats_filename, allow_pickle=True)
