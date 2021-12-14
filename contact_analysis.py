@@ -258,6 +258,7 @@ class ExperimentRunner():
         self.combined_stats_filename = self.main_dir.joinpath(experiment_config['combined_stats_filename'])
         self.simulations_summary_filename = self.main_dir.joinpath(experiment_config['simulations_summary_filename'])
         self.experiment_state_filename = self.main_dir.joinpath(experiment_config['experiment_state_filename'])
+        self.array_names = {}
         for cut_off_distance, interaction_types in list(experiment_config['array_names'].items()):
             self.array_names[float(cut_off_distance)] = interaction_types
         
