@@ -133,7 +133,7 @@ def run_experiments(scenario_filenames, lrcm_filename_per_scenario, log_dir, log
     # If continue_from_file finish current replication step
     for exp_runner in exp_runners:
         logger.info(f'{exp_runner.scenario_filename.stem} - {exp_runner.successful_replication_count} - {exp_runner.replication_nr}')
-    while not _all_have_converged(exp_runners):      
+    while not _all_have_converged(exp_runners, logger):      
         with multiprocessing.Pool(processes=3, initializer=pool_process_init, initargs=(queue,)) as pool:
             exp_runners = pool.map(do_one_convergence_step, exp_runners)
      
