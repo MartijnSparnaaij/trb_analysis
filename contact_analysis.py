@@ -148,13 +148,19 @@ def do_one_convergence_step(exp_runner):
     return exp_runner
     
 def _all_have_converged(exp_runners, logger):
+    self.logger.info(f'{"="*40}\n')
     logger.info('Checking convergence....')
+    not_converged_count = 0
     for exp_runner in exp_runners:
         if not exp_runner.has_converged:
-            logger.info('No convergence')
-            return False
+            not_converged_count += 1
+        
     
-    logger.info('CONVERGENCE!!!!')
+    if not_converged_count > 0:
+        logger.info(f'No convergence. {not_converged_count} out of {len(exp_runners)} have not converged\n')
+        return False
+    
+    logger.info('CONVERGENCE!!!!\n')
     return True
     
 def pool_process_init(queue):
@@ -303,7 +309,7 @@ class ExperimentRunner():
             self._run_replication()
             
         self.replication_nr += 1
-        self.has_converged = self._check_convergence(force=True)
+        self._check_convergence(force=True)
             
     def continue_convergence_step(self, queue):
         self.config_logger(queue)
@@ -313,7 +319,7 @@ class ExperimentRunner():
             self._run_replication()
             self.replication_nr += 1
             
-        self.has_converged = self._check_convergence(force=True)
+        self._check_convergence(force=True)
             
     def do_one_convergence_step(self, queue):
         self.config_logger(queue)
@@ -322,7 +328,7 @@ class ExperimentRunner():
             self._run_replication()
             self.replication_nr += 1 
             
-        self.has_converged = self._check_convergence(force=True)
+        self._check_convergence(force=True)
             
     def run_experiment(self):
         self.last_convergence_check = self.init_replications - 1 - self.convergence_config['steps']
@@ -333,8 +339,7 @@ class ExperimentRunner():
             self._run_replication()
             
             has_converged = self._check_convergence()
-            if has_converged:
-                self.has_converged = True
+            if has_converged:                
                 break
             self.replication_nr += 1            
         
@@ -412,14 +417,15 @@ class ExperimentRunner():
             self.logger.info(f'{self.replication_nr}: Checking convergence...')
             p_values, has_converged = self._check_convergence_for_arrays()                 
             self.last_convergence_stats = p_values
-            self._update_experiment_state_file()
             self.last_convergence_check = self.replication_nr    
             self.logger.info('done')
-            if has_converged:                    
+            if has_converged:
+                self.has_converged = True                    
                 self.logger.info(f'{"="*40}\n')
                 self.logger.info(f'{self.replication_nr}: FINISHED!!!!!!!!!!\n')
                 self.logger.info(f'{"="*40}')
             
+            self._update_experiment_state_file()
             return has_converged                                
         return False
     
