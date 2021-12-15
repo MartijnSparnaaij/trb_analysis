@@ -734,10 +734,10 @@ def get_seed_from_filename(filename):
 
 def do_chi_square_test(base_array, compare_array):
     base_values, base_counts = np.unique(base_array, return_counts=True)
-    base_counts = base_counts/sum(base_counts)
+    base_counts = base_counts
     base_counts_dict = dict(zip(base_values, base_counts))
     compare_values, compare_counts = np.unique(compare_array, return_counts=True)
-    compare_counts = compare_counts/sum(compare_counts)
+    compare_counts = compare_counts/sum(compare_counts)*sum(base_counts)
     compare_counts_dict = dict(zip(compare_values, compare_counts))
     values = np.unique(np.concatenate((base_values, compare_values)))
     
