@@ -148,7 +148,7 @@ def do_one_convergence_step(exp_runner):
     return exp_runner
     
 def _all_have_converged(exp_runners, logger):
-    self.logger.info(f'{"="*40}\n')
+    logger.info(f'{"="*40}\n')
     logger.info('Checking convergence....')
     not_converged_count = 0
     for exp_runner in exp_runners:
