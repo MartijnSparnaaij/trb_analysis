@@ -1,0 +1,123 @@
+<html>
+<head>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis/4.16.1/vis.css" type="text/css" />
+<script type="text/javascript" src="https://cdnjs.cloudflare.com/ajax/libs/vis/4.16.1/vis-network.min.js"> </script>
+<center>
+<h1></h1>
+</center>
+
+<!-- <link rel="stylesheet" href="../node_modules/vis/dist/vis.min.css" type="text/css" />
+<script type="text/javascript" src="../node_modules/vis/dist/vis.js"> </script>-->
+
+<style type="text/css">
+
+        #mynetwork {
+            width: 1200;
+            height: 1000;
+            background-color: #ffffff;
+            border: 1px solid lightgray;
+            position: relative;
+            float: left;
+        }
+
+        
+
+        
+        #config {
+            float: left;
+            width: 400px;
+            height: 600px;
+        }
+        
+
+        
+</style>
+
+</head>
+
+<body>
+<div id = "mynetwork"></div>
+
+
+<div id = "config"></div>
+
+<script type="text/javascript">
+
+    // initialize global variables.
+    var edges;
+    var nodes;
+    var network; 
+    var container;
+    var options, data;
+
+    
+    // This method is responsible for drawing the graph, returns the drawn network
+    function drawGraph() {
+        var container = document.getElementById('mynetwork');
+        
+        
+
+        // parsing and collecting nodes and edges from the python
+        nodes = new vis.DataSet([{"group": "staff", "id": 0, "label": 0, "shape": "dot", "size": 20}, {"group": "Group_0005", "id": 4, "label": 4, "shape": "dot", "size": 3}, {"group": "Group_0005", "id": 3, "label": 3, "shape": "dot", "size": 1}, {"group": "Group_0006", "id": 16, "label": 16, "shape": "dot", "size": 4}, {"group": "Group_0006", "id": 18, "label": 18, "shape": "dot", "size": 4}, {"group": "Group_0007", "id": 22, "label": 22, "shape": "dot", "size": 2}, {"group": "Group_0007", "id": 21, "label": 21, "shape": "dot", "size": 5}, {"group": "Group_0007", "id": 20, "label": 20, "shape": "dot", "size": 1}, {"group": "Group_0007", "id": 19, "label": 19, "shape": "dot", "size": 4}, {"group": "Group_0011", "id": 45, "label": 45, "shape": "dot", "size": 9}, {"group": "Group_0011", "id": 46, "label": 46, "shape": "dot", "size": 4}, {"group": "Group_0017", "id": 75, "label": 75, "shape": "dot", "size": 4}, {"group": "Group_0029", "id": 74, "label": 74, "shape": "dot", "size": 4}, {"group": "Group_0017", "id": 76, "label": 76, "shape": "dot", "size": 2}, {"group": "Group_0015", "id": 81, "label": 81, "shape": "dot", "size": 4}, {"group": "Group_0015", "id": 84, "label": 84, "shape": "dot", "size": 4}, {"group": "Group_0024", "id": 70, "label": 70, "shape": "dot", "size": 1}, {"group": "Group_0028", "id": 58, "label": 58, "shape": "dot", "size": 7}, {"group": "Group_0028", "id": 59, "label": 59, "shape": "dot", "size": 4}, {"group": "Group_0028", "id": 60, "label": 60, "shape": "dot", "size": 5}, {"group": "Group_0018", "id": 95, "label": 95, "shape": "dot", "size": 4}, {"group": "Group_0018", "id": 96, "label": 96, "shape": "dot", "size": 0}, {"group": "Group_0018", "id": 97, "label": 97, "shape": "dot", "size": 4}, {"group": "Group_0032", "id": 101, "label": 101, "shape": "dot", "size": 0}, {"group": "Group_0032", "id": 102, "label": 102, "shape": "dot", "size": 5}, {"group": "Group_0031", "id": 111, "label": 111, "shape": "dot", "size": 4}, {"group": "Group_0031", "id": 112, "label": 112, "shape": "dot", "size": 4}, {"group": "Group_0038", "id": 121, "label": 121, "shape": "dot", "size": 1}, {"group": "Group_0038", "id": 119, "label": 119, "shape": "dot", "size": 4}, {"group": "Group_0037", "id": 130, "label": 130, "shape": "dot", "size": 4}, {"group": "Group_0038", "id": 122, "label": 122, "shape": "dot", "size": 4}, {"group": "Group_0037", "id": 129, "label": 129, "shape": "dot", "size": 3}, {"group": "Group_0038", "id": 120, "label": 120, "shape": "dot", "size": 0}, {"group": "staff", "id": 1, "label": 1, "shape": "dot", "size": 20}, {"group": "Group_0008", "id": 6, "label": 6, "shape": "dot", "size": 6}, {"group": "Group_0008", "id": 5, "label": 5, "shape": "dot", "size": 6}, {"group": "Group_0008", "id": 8, "label": 8, "shape": "dot", "size": 1}, {"group": "Group_0008", "id": 7, "label": 7, "shape": "dot", "size": 3}, {"group": "Group_0001", "id": 27, "label": 27, "shape": "dot", "size": 3}, {"group": "Group_0009", "id": 42, "label": 42, "shape": "dot", "size": 6}, {"group": "Group_0009", "id": 41, "label": 41, "shape": "dot", "size": 5}, {"group": "Group_0001", "id": 28, "label": 28, "shape": "dot", "size": 0}, {"group": "Group_0026", "id": 68, "label": 68, "shape": "dot", "size": 6}, {"group": "Group_0027", "id": 64, "label": 64, "shape": "dot", "size": 5}, {"group": "Group_0027", "id": 66, "label": 66, "shape": "dot", "size": 4}, {"group": "Group_0026", "id": 67, "label": 67, "shape": "dot", "size": 4}, {"group": "Group_0021", "id": 89, "label": 89, "shape": "dot", "size": 2}, {"group": "Group_0016", "id": 77, "label": 77, "shape": "dot", "size": 0}, {"group": "Group_0016", "id": 79, "label": 79, "shape": "dot", "size": 0}, {"group": "Group_0034", "id": 100, "label": 100, "shape": "dot", "size": 0}, {"group": "Group_0033", "id": 110, "label": 110, "shape": "dot", "size": 6}, {"group": "Group_0041", "id": 115, "label": 115, "shape": "dot", "size": 4}, {"group": "Group_0041", "id": 118, "label": 118, "shape": "dot", "size": 5}, {"group": "Group_0033", "id": 109, "label": 109, "shape": "dot", "size": 4}, {"group": "Group_0036", "id": 123, "label": 123, "shape": "dot", "size": 3}, {"group": "Group_0030", "id": 131, "label": 131, "shape": "dot", "size": 5}, {"group": "Group_0030", "id": 132, "label": 132, "shape": "dot", "size": 4}, {"group": "Group_0030", "id": 133, "label": 133, "shape": "dot", "size": 0}, {"group": "Group_0030", "id": 134, "label": 134, "shape": "dot", "size": 5}, {"group": "staff", "id": 2, "label": 2, "shape": "dot", "size": 20}, {"group": "Group_0010", "id": 25, "label": 25, "shape": "dot", "size": 4}, {"group": "Group_0010", "id": 26, "label": 26, "shape": "dot", "size": 4}, {"group": "Group_0010", "id": 24, "label": 24, "shape": "dot", "size": 3}, {"group": "Group_0003", "id": 30, "label": 30, "shape": "dot", "size": 3}, {"group": "Group_0013", "id": 47, "label": 47, "shape": "dot", "size": 1}, {"group": "Group_0013", "id": 50, "label": 50, "shape": "dot", "size": 0}, {"group": "Group_0013", "id": 49, "label": 49, "shape": "dot", "size": 0}, {"group": "Group_0010", "id": 23, "label": 23, "shape": "dot", "size": 0}, {"group": "Group_0003", "id": 31, "label": 31, "shape": "dot", "size": 0}, {"group": "Group_0024", "id": 69, "label": 69, "shape": "dot", "size": 1}, {"group": "Group_0024", "id": 71, "label": 71, "shape": "dot", "size": 0}, {"group": "Group_0025", "id": 51, "label": 51, "shape": "dot", "size": 4}, {"group": "Group_0039", "id": 105, "label": 105, "shape": "dot", "size": 1}, {"group": "Group_0039", "id": 107, "label": 107, "shape": "dot", "size": 1}, {"group": "Group_0039", "id": 106, "label": 106, "shape": "dot", "size": 1}, {"group": "Group_0039", "id": 108, "label": 108, "shape": "dot", "size": 1}, {"group": "Group_0040", "id": 145, "label": 145, "shape": "dot", "size": 3}, {"group": "Group_0044", "id": 137, "label": 137, "shape": "dot", "size": 0}, {"group": "Group_0003", "id": 29, "label": 29, "shape": "dot", "size": 0}, {"group": "Group_0012", "id": 36, "label": 36, "shape": "dot", "size": 0}, {"group": "Group_0023", "id": 88, "label": 88, "shape": "dot", "size": 0}, {"group": "Group_0022", "id": 53, "label": 53, "shape": "dot", "size": 0}, {"group": "Group_0022", "id": 56, "label": 56, "shape": "dot", "size": 0}, {"group": "Group_0043", "id": 128, "label": 128, "shape": "dot", "size": 0}, {"group": "Group_0044", "id": 135, "label": 135, "shape": "dot", "size": 0}, {"group": "Group_0044", "id": 136, "label": 136, "shape": "dot", "size": 0}]);
+        edges = new vis.DataSet([{"from": 0, "to": 4, "value": 0.6514595350463206, "weight": 0.6514595350463206}, {"from": 0, "to": 3, "value": 0.09456388743226708, "weight": 0.09456388743226708}, {"from": 0, "to": 16, "value": 0.7441006816990037, "weight": 0.7441006816990037}, {"from": 0, "to": 18, "value": 0.770494668764202, "weight": 0.770494668764202}, {"from": 0, "to": 22, "value": 0.40482433141059254, "weight": 0.40482433141059254}, {"from": 0, "to": 21, "value": 0.9071840587309911, "weight": 0.9071840587309911}, {"from": 0, "to": 20, "value": 0.3048418108722251, "weight": 0.3048418108722251}, {"from": 0, "to": 19, "value": 0.7257472469847929, "weight": 0.7257472469847929}, {"from": 0, "to": 45, "value": 0.6130047194546407, "weight": 0.6130047194546407}, {"from": 0, "to": 46, "value": 0.8112218143681175, "weight": 0.8112218143681175}, {"from": 0, "to": 75, "value": 0.7430519140010488, "weight": 0.7430519140010488}, {"from": 0, "to": 74, "value": 0.7253976577521412, "weight": 0.7253976577521412}, {"from": 0, "to": 76, "value": 0.4439783254675756, "weight": 0.4439783254675756}, {"from": 0, "to": 81, "value": 0.767697954902989, "weight": 0.767697954902989}, {"from": 0, "to": 84, "value": 0.7680475441356406, "weight": 0.7680475441356406}, {"from": 0, "to": 70, "value": 0.023072889355007866, "weight": 0.023072889355007866}, {"from": 0, "to": 58, "value": 0.2078307988113966, "weight": 0.2078307988113966}, {"from": 0, "to": 59, "value": 0.2059080580318126, "weight": 0.2059080580318126}, {"from": 0, "to": 60, "value": 0.20416011186855443, "weight": 0.20416011186855443}, {"from": 0, "to": 95, "value": 0.8367418283516868, "weight": 0.8367418283516868}, {"from": 0, "to": 96, "value": 0.09613703897919944, "weight": 0.09613703897919944}, {"from": 0, "to": 97, "value": 0.7194546407970634, "weight": 0.7194546407970634}, {"from": 0, "to": 101, "value": 0.08092990735885335, "weight": 0.08092990735885335}, {"from": 0, "to": 102, "value": 0.9758783429470372, "weight": 0.9758783429470372}, {"from": 0, "to": 111, "value": 0.5656353784303443, "weight": 0.5656353784303443}, {"from": 0, "to": 112, "value": 0.5642370214997378, "weight": 0.5642370214997378}, {"from": 0, "to": 121, "value": 0.3354308687292431, "weight": 0.3354308687292431}, {"from": 0, "to": 119, "value": 0.8404125152945289, "weight": 0.8404125152945289}, {"from": 0, "to": 130, "value": 0.8094738682048592, "weight": 0.8094738682048592}, {"from": 0, "to": 122, "value": 0.7281943716133543, "weight": 0.7281943716133543}, {"from": 0, "to": 129, "value": 0.691137912952281, "weight": 0.691137912952281}, {"from": 0, "to": 120, "value": 0.09071840587309911, "weight": 0.09071840587309911}, {"from": 1, "to": 6, "value": 0.6254151372137738, "weight": 0.6254151372137738}, {"from": 1, "to": 5, "value": 0.6526830973606013, "weight": 0.6526830973606013}, {"from": 1, "to": 8, "value": 0.22828176892151722, "weight": 0.22828176892151722}, {"from": 1, "to": 7, "value": 0.27897220765600417, "weight": 0.27897220765600417}, {"from": 1, "to": 27, "value": 0.6407970634504457, "weight": 0.6407970634504457}, {"from": 1, "to": 42, "value": 1.0, "weight": 1.0}, {"from": 1, "to": 41, "value": 0.7853522111518965, "weight": 0.7853522111518965}, {"from": 1, "to": 28, "value": 0.0926411466526831, "weight": 0.0926411466526831}, {"from": 1, "to": 3, "value": 0.09840936899143506, "weight": 0.09840936899143506}, {"from": 1, "to": 68, "value": 0.9178465303268659, "weight": 0.9178465303268659}, {"from": 1, "to": 64, "value": 0.7428771193847229, "weight": 0.7428771193847229}, {"from": 1, "to": 66, "value": 0.7299423177766124, "weight": 0.7299423177766124}, {"from": 1, "to": 67, "value": 0.691137912952281, "weight": 0.691137912952281}, {"from": 1, "to": 89, "value": 0.5131969935325992, "weight": 0.5131969935325992}, {"from": 1, "to": 77, "value": 0.0540115364446775, "weight": 0.0540115364446775}, {"from": 1, "to": 79, "value": 0.0540115364446775, "weight": 0.0540115364446775}, {"from": 1, "to": 100, "value": 0.15941269008914524, "weight": 0.15941269008914524}, {"from": 1, "to": 110, "value": 0.9047369341024296, "weight": 0.9047369341024296}, {"from": 1, "to": 115, "value": 0.7234749169725572, "weight": 0.7234749169725572}, {"from": 1, "to": 118, "value": 0.7551127425275301, "weight": 0.7551127425275301}, {"from": 1, "to": 109, "value": 0.7098409368991435, "weight": 0.7098409368991435}, {"from": 1, "to": 123, "value": 0.5492046844957175, "weight": 0.5492046844957175}, {"from": 1, "to": 131, "value": 0.05331235797937423, "weight": 0.05331235797937423}, {"from": 1, "to": 132, "value": 0.05191400104876769, "weight": 0.05191400104876769}, {"from": 1, "to": 133, "value": 0.050340849501835344, "weight": 0.050340849501835344}, {"from": 1, "to": 134, "value": 0.0550603041426324, "weight": 0.0550603041426324}, {"from": 6, "to": 2, "value": 0.10575074287711939, "weight": 0.10575074287711939}, {"from": 6, "to": 45, "value": 0.3675930781331935, "weight": 0.3675930781331935}, {"from": 5, "to": 2, "value": 0.1538192623667191, "weight": 0.1538192623667191}, {"from": 5, "to": 45, "value": 0.36724348890054187, "weight": 0.36724348890054187}, {"from": 7, "to": 45, "value": 0.36829225659849674, "weight": 0.36829225659849674}, {"from": 2, "to": 25, "value": 0.7467226009438909, "weight": 0.7467226009438909}, {"from": 2, "to": 26, "value": 0.7063450445726271, "weight": 0.7063450445726271}, {"from": 2, "to": 24, "value": 0.5614403076385247, "weight": 0.5614403076385247}, {"from": 2, "to": 30, "value": 0.5540989337528404, "weight": 0.5540989337528404}, {"from": 2, "to": 41, "value": 0.12445376682398182, "weight": 0.12445376682398182}, {"from": 2, "to": 42, "value": 0.13529103303618248, "weight": 0.13529103303618248}, {"from": 2, "to": 47, "value": 0.18300996329313057, "weight": 0.18300996329313057}, {"from": 2, "to": 50, "value": 0.1641321447299423, "weight": 0.1641321447299423}, {"from": 2, "to": 49, "value": 0.0926411466526831, "weight": 0.0926411466526831}, {"from": 2, "to": 23, "value": 0.16220940395035832, "weight": 0.16220940395035832}, {"from": 2, "to": 31, "value": 0.0795315504282468, "weight": 0.0795315504282468}, {"from": 2, "to": 58, "value": 0.9549029889879391, "weight": 0.9549029889879391}, {"from": 2, "to": 59, "value": 0.5404649536794267, "weight": 0.5404649536794267}, {"from": 2, "to": 60, "value": 0.6990036706869428, "weight": 0.6990036706869428}, {"from": 2, "to": 70, "value": 0.24174095437860513, "weight": 0.24174095437860513}, {"from": 2, "to": 69, "value": 0.22163957350113617, "weight": 0.22163957350113617}, {"from": 2, "to": 67, "value": 0.14140884460758607, "weight": 0.14140884460758607}, {"from": 2, "to": 68, "value": 0.1517217269708093, "weight": 0.1517217269708093}, {"from": 2, "to": 64, "value": 0.17706694633805278, "weight": 0.17706694633805278}, {"from": 2, "to": 66, "value": 0.11851074986890403, "weight": 0.11851074986890403}, {"from": 2, "to": 71, "value": 0.10155567208529977, "weight": 0.10155567208529977}, {"from": 2, "to": 51, "value": 0.7388568432092292, "weight": 0.7388568432092292}, {"from": 2, "to": 105, "value": 0.32232127250480685, "weight": 0.32232127250480685}, {"from": 2, "to": 107, "value": 0.21919244887257472, "weight": 0.21919244887257472}, {"from": 2, "to": 106, "value": 0.24698479286837965, "weight": 0.24698479286837965}, {"from": 2, "to": 108, "value": 0.2169201188603391, "weight": 0.2169201188603391}, {"from": 2, "to": 109, "value": 0.15207131620346093, "weight": 0.15207131620346093}, {"from": 2, "to": 110, "value": 0.18161160636252402, "weight": 0.18161160636252402}, {"from": 2, "to": 118, "value": 0.18405873099108547, "weight": 0.18405873099108547}, {"from": 2, "to": 115, "value": 0.12357979374235273, "weight": 0.12357979374235273}, {"from": 2, "to": 131, "value": 0.8155916797762629, "weight": 0.8155916797762629}, {"from": 2, "to": 112, "value": 0.21080230728893548, "weight": 0.21080230728893548}, {"from": 2, "to": 111, "value": 0.19297325642370214, "weight": 0.19297325642370214}, {"from": 2, "to": 134, "value": 0.8349938821884285, "weight": 0.8349938821884285}, {"from": 2, "to": 132, "value": 0.6560041950707918, "weight": 0.6560041950707918}, {"from": 2, "to": 145, "value": 0.6301345918545709, "weight": 0.6301345918545709}, {"from": 2, "to": 137, "value": 0.16430693934626814, "weight": 0.16430693934626814}, {"from": 25, "to": 29, "value": 0.017479461632581714, "weight": 0.017479461632581714}, {"from": 25, "to": 36, "value": 0.024471246285614402, "weight": 0.024471246285614402}, {"from": 58, "to": 88, "value": 0.017479461632581714, "weight": 0.017479461632581714}, {"from": 58, "to": 53, "value": 0.01782905086523335, "weight": 0.01782905086523335}, {"from": 58, "to": 56, "value": 0.025345219367243488, "weight": 0.025345219367243488}, {"from": 68, "to": 77, "value": 0.01852822933053662, "weight": 0.01852822933053662}, {"from": 59, "to": 56, "value": 0.023597273203985317, "weight": 0.023597273203985317}, {"from": 110, "to": 128, "value": 0.0183534347142108, "weight": 0.0183534347142108}, {"from": 131, "to": 135, "value": 0.01800384548155917, "weight": 0.01800384548155917}, {"from": 131, "to": 136, "value": 0.01800384548155917, "weight": 0.01800384548155917}, {"from": 134, "to": 135, "value": 0.01957699702849152, "weight": 0.01957699702849152}, {"from": 134, "to": 136, "value": 0.021324943191749695, "weight": 0.021324943191749695}]);
+
+        // adding nodes and edges to the graph
+        data = {nodes: nodes, edges: edges};
+
+        var options = {
+    "configure": {
+        "enabled": true,
+        "filter": [
+            "physics"
+        ]
+    },
+    "edges": {
+        "color": {
+            "inherit": true
+        },
+        "smooth": {
+            "enabled": false,
+            "type": "continuous"
+        }
+    },
+    "interaction": {
+        "dragNodes": true,
+        "hideEdgesOnDrag": false,
+        "hideNodesOnDrag": false
+    },
+    "physics": {
+        "enabled": true,
+        "stabilization": {
+            "enabled": true,
+            "fit": true,
+            "iterations": 1000,
+            "onlyDynamicEdges": false,
+            "updateInterval": 50
+        }
+    }
+};
+        
+        
+
+        
+        // if this network requires displaying the configure window,
+        // put it in its div
+        options.configure["container"] = document.getElementById("config");
+        
+
+        network = new vis.Network(container, data, options);
+	 
+        
+
+
+        
+
+        return network;
+
+    }
+
+    drawGraph();
+
+</script>
+</body>
+</html>

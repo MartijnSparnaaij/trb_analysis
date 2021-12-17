@@ -5,6 +5,7 @@ Created on 13 Jul 2021
 '''
 
 import json
+from scipy import stats
 
 from mpl_toolkits.axes_grid1.axes_divider import Divider
 import mpl_toolkits.axes_grid1.axes_size as Size
@@ -12,26 +13,44 @@ import mpl_toolkits.axes_grid1.axes_size as Size
 import matplotlib.pyplot as plt
 from matplotlib import cm
 import numpy as np
+from copy import deepcopy
 
 
-def get_data_from_files(data_folder):
+def get_data_from_files(data_folder, convert_2_minutes=False):
     combined_data_files = get_combined_data_files_from_dir(data_folder)
     
     contact_data = {}
+    infra_and_measure_name_2_data = {}
     for combined_data_file in combined_data_files:
         num_data = np.load(combined_data_file, allow_pickle=True)
         arrays_dict = num_data['arrays'].item()
+        if convert_2_minutes:
+            for key, contact_data_array in arrays_dict.items():
+                if 'weight' in key:
+                    arrays_dict[key] = contact_data_array/60
+        
         scen_name = combined_data_file.stem.replace('_scenario_combined.stats', '')
         name_parts = scen_name.split('_')
         infra_name = '_'.join(name_parts[:2])
         measure_name = '_'.join(name_parts[2:])
         contact_data[scen_name] = {'data':arrays_dict, 'infra_name':infra_name, 'measure_name':measure_name}
-    
-    return contact_data
+        if infra_name not in infra_and_measure_name_2_data:
+            infra_and_measure_name_2_data[infra_name] = {}
+        if measure_name not in infra_and_measure_name_2_data[infra_name]:
+            infra_and_measure_name_2_data[infra_name][measure_name] = []
+        infra_and_measure_name_2_data[infra_name][measure_name] = arrays_dict
+        
+    return contact_data, infra_and_measure_name_2_data
 
 def get_combined_data_files_from_dir(data_folder):
     scen_exts = ['.stats', '.npz']
-    return sorted([entry for entry in data_folder.iterdir() if entry.is_file() and entry.suffixes == scen_exts])
+    combinded_data_files = []
+    for entry in data_folder.iterdir():
+        if entry.is_file() and entry.suffixes == scen_exts:
+            combinded_data_files.append(entry)
+        elif entry.is_dir():
+            combinded_data_files += get_combined_data_files_from_dir(entry)
+    return combinded_data_files
 
 def get_cdf_of_data(contact_data):
     sorted_data = np.sort(contact_data)
@@ -39,6 +58,25 @@ def get_cdf_of_data(contact_data):
     p = 1. * np.arange(len(sorted_data)) / (len(sorted_data) - 1)
     
     return sorted_data, p 
+
+def do_chi_square_test(base_array, compare_array):
+    base_values, base_counts = np.unique(base_array, return_counts=True)
+    base_counts = base_counts/sum(base_counts)
+    base_counts_dict = dict(zip(base_values, base_counts))
+    compare_values, compare_counts = np.unique(compare_array, return_counts=True)
+    compare_counts = compare_counts/sum(compare_counts)
+    compare_counts_dict = dict(zip(compare_values, compare_counts))
+    values = np.unique(np.concatenate((base_values, compare_values)))
+    
+    
+    base_counts = [base_counts_dict[value] if value in base_counts_dict else 0 for value in values]
+    compare_counts = [compare_counts_dict[value] if value in compare_counts_dict else 0 for value in values]
+    
+    if len(values) == 1:
+        return 1.0
+    
+    res = stats.chisquare(compare_counts, base_counts)
+    return res.pvalue    
 
 def plot_convergence(exp_info_filename):
     with open(exp_info_filename, 'r') as f:
@@ -289,3 +327,173 @@ def create_cfd_contacts_paper_plot(cdf_data, figure_props={}):
     legend_ax.legend(line_handles, line_labels, loc='upper center', ncol=3, fontsize=8, handlelength=3)
         
     plt.draw()
+    
+    
+def create_base_case_paper_plot(fig_config, divider_config, plots_config, data):
+    fig_title = None
+    if 'title' in fig_config:
+        fig_title = fig_config['title']
+        fig_config.pop('title')
+    fig = plt.figure(**fig_config)
+    if fig_title is not None:
+        fig.canvas.manager.set_window_title(fig_title)
+    
+    hor_division = [Size.Fixed(divider_config['left']), Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), 
+                    Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), Size.Scaled(1), Size.Fixed(divider_config['right'])]
+    ver_division = [Size.Fixed(divider_config['bottom']), Size.Scaled(1), Size.Fixed(divider_config['gap_ver']), Size.Scaled(divider_config['top_axes_scale']), Size.Fixed(divider_config['top'])]  
+    divider = Divider(fig, (0,0,1,1), hor_division, ver_division, aspect=False)
+    
+    main_axes = []
+    top_axes = []
+    for ax_nr in range(3):
+        main_ax = fig.add_axes((0,0,1,1), f'main_ax_{ax_nr}')
+        main_ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=1))
+        main_axes.append(main_ax)
+        
+        top_ax = fig.add_axes((0,0,1,1), f'top_ax_{ax_nr}')
+        top_ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=3))
+        top_axes.append(top_ax)
+        
+    
+        
+    for ax_nr, plot_config in enumerate(plots_config):
+        x = list(range(1, len(plot_config['measure_names']) + 1))
+        main_ax = main_axes[ax_nr]
+        top_ax = top_axes[ax_nr]
+        if plot_config['main_type'] == 'bar_plot':
+            bar_plot(main_ax, data, plot_config, x)
+        else:
+            box_plot(main_ax, data, plot_config, x)
+        
+        x_ticks = main_ax.get_xticks()
+        x_lim = main_ax.get_xlim() 
+        plot_config['top_ax_config'].update({'x_lim':x_lim, 'x_ticks':x_ticks})
+        
+        mean_diff_plot(top_ax, data, plot_config, x)
+           
+    plt.draw()
+        
+def box_plot(ax, data, plot_config, x):
+    infra_name = plot_config['infra_name']
+    data_name = plot_config['data_name']
+    
+    box_data = []
+    for measure_name in plot_config['measure_names']:
+        box_data.append(data[infra_name][measure_name][data_name])
+        
+    for x_coord in x:
+        ax.axvline(x_coord, **plot_config['v_line_config'])
+
+    ax.boxplot(box_data, positions=x, zorder=3, **plot_config['box_plot_config'])    
+    set_ax_config(ax, plot_config['main_ax_config'])
+ 
+def bar_plot(ax, data, plot_config, x):
+    infra_name = plot_config['infra_name']
+    data_name = plot_config['data_name']
+    
+    values = []
+    value_2_counts_per_measure = {}
+    value_2_rel_counts_per_measure = {}
+    for measure_name in plot_config['measure_names']:
+        unique_values, value_counts = np.unique(data[infra_name][measure_name][data_name], return_counts=True)
+        values.append(unique_values)
+        value_2_counts_per_measure[measure_name] = dict(zip(unique_values, value_counts))
+        value_2_rel_counts_per_measure[measure_name] = dict(zip(unique_values, value_counts/np.sum(value_counts)))
+        
+        
+    categories = np.unique(np.concatenate(values)).tolist()
+    bar_data = {}
+    text_data = {}
+    bottoms = {}
+    for ii, category in enumerate(categories):
+        bar_data[category] = [value_2_rel_counts_per_measure[measure_name][category] if category in value_2_rel_counts_per_measure[measure_name] else 0 for measure_name in plot_config['measure_names']]
+        text_data[category] = [value_2_counts_per_measure[measure_name][category] if category in value_2_rel_counts_per_measure[measure_name] else 0 for measure_name in plot_config['measure_names']]
+        if ii == 0:
+            bottoms[category] = None
+        elif ii == 1:
+            bottoms[category] = bar_data[categories[ii-1]]
+        else:
+            bottoms[category] = [bottoms[categories[ii-1]][jj] + bar_data[categories[ii-1]][jj] for jj in range(len(plot_config['measure_names']))]
+        
+        prev_category = category
+        
+    for x_coord in x:
+        ax.axvline(x_coord, **plot_config['v_line_config'])
+
+    for category in categories:
+        ax.bar(x, bar_data[category], label=f'{category}', bottom=bottoms[category], zorder=3, **plot_config['bar_plot_config'])
+
+    for category in categories:
+        for ii, x_coord in enumerate(x):
+            if bottoms[category] is None:
+                y_bottom = 0
+            else:
+                y_bottom = bottoms[category][ii]
+            
+            y_coord = y_bottom + bar_data[category][ii]/2
+            count = text_data[category][ii]
+            ax.text(x_coord, y_coord, f'{count}', zorder=4, **plot_config['bar_plot_text_config'])
+            
+    ax.set_xticks(x)
+    ax.legend(**plot_config['bar_plot_legend_config'])
+    set_ax_config(ax, plot_config['main_ax_config'])     
+    
+       
+def mean_diff_plot(ax, data, plot_config, x):
+    infra_name = plot_config['infra_name']
+    data_name = plot_config['data_name']
+        
+    base_name = plot_config['measure_names'][0]
+    base_mean = np.mean(data[infra_name][base_name][data_name])
+    mean_data = []
+    
+    colors = []
+    mean_bar_color_config = plot_config['mean_bar_color_config']
+    for measure_name in plot_config['measure_names']:
+        other_mean = np.mean(data[infra_name][measure_name][data_name])
+        mean_data.append((other_mean - base_mean)/base_mean*100)  
+        if mean_data[-1] < 0:
+            colors.append(mean_bar_color_config['negative'])
+        elif mean_data[-1] > 0: 
+            colors.append(mean_bar_color_config['positive'])
+        else:
+            colors.append(mean_bar_color_config['base'])
+            
+    for x_coord in x:
+        ax.axvline(x_coord, **plot_config['v_line_config'])
+
+    ax.axhline(0, linewidth=2, color='k', linestyle='-', zorder=4)
+    ax.bar(x, mean_data, zorder=3, color=colors, **plot_config['mean_bar_config'])
+    set_ax_config(ax, plot_config['top_ax_config'])
+        
+def set_ax_config(ax, ax_config):
+    if 'x_ticks' in ax_config:
+        ax.set_xticks(ax_config['x_ticks'])
+    if 'x_tick_labels' in ax_config:
+        if 'x_tick_labels_config' in ax_config:
+            ax.set_xticklabels(ax_config['x_tick_labels'], **ax_config['x_tick_labels_config'])
+        else:
+            ax.set_xticklabels(ax_config['x_tick_labels'])
+    elif 'x_tick_labels_config' in ax_config:
+        print(ax.get_xticklabels())
+        ax.set_xticklabels(ax.get_xticklabels(), **ax_config['x_tick_labels_config'])
+
+    if 'x_lim' in ax_config:
+        ax.set_xlim(ax_config['x_lim'])
+    if 'y_lim' in ax_config:
+        ax.set_ylim(ax_config['y_lim'])
+
+        
+    if 'y_label' in ax_config:
+        if 'y_label_config' in ax_config:
+            ax.set_ylabel(ax_config['y_label'], **ax_config['y_label_config'])
+        else:
+            ax.set_ylabel(ax_config['y_label'])
+            
+    if 'title' in ax_config:
+        if 'title_config' in ax_config:
+            ax.set_title(ax_config['title'], **ax_config['title_config'])
+        else:
+            ax.set_title(ax_config['title'])
+    if 'grid' in ax_config:
+        ax.grid(**ax_config['grid'])
