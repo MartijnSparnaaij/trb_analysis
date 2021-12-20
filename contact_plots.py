@@ -12,6 +12,7 @@ import mpl_toolkits.axes_grid1.axes_size as Size
 
 import matplotlib.pyplot as plt
 from matplotlib import cm
+import matplotlib
 import numpy as np
 from copy import deepcopy
 
@@ -374,16 +375,27 @@ def create_base_case_paper_plot(fig_config, divider_config, plots_config, data):
     plt.draw()
         
 def box_plot(ax, data, plot_config, x):
-    infra_name = plot_config['infra_name']
-    data_name = plot_config['data_name']
+    if 'infra_names' in plot_config:
+        infra_names = plot_config['infra_names']
+    else:
+        infra_names = [plot_config['infra_name']]
+    
+    if 'data_names' in plot_config:
+        data_names = plot_config['data_names']
+    else:
+        data_names = [plot_config['data_name']]
     
     box_data = []
     for measure_name in plot_config['measure_names']:
-        box_data.append(data[infra_name][measure_name][data_name])
+        for infra_name in infra_names:
+            for data_name in data_names:
+                box_data.append(data[infra_name][measure_name][data_name])
         
     for x_coord in x:
         ax.axvline(x_coord, **plot_config['v_line_config'])
 
+    print(len(box_data))
+    print(len(x))
     ax.boxplot(box_data, positions=x, zorder=3, **plot_config['box_plot_config'])    
     set_ax_config(ax, plot_config['main_ax_config'])
  
@@ -466,6 +478,31 @@ def mean_diff_plot(ax, data, plot_config, x):
     ax.bar(x, mean_data, zorder=3, color=colors, **plot_config['mean_bar_config'])
     set_ax_config(ax, plot_config['top_ax_config'])
         
+def mean_plot(ax, data, plot_config, x):
+    if 'infra_names' in plot_config:
+        infra_names = plot_config['infra_names']
+    else:
+        infra_names = [plot_config['infra_name']]
+    
+    if 'data_names' in plot_config:
+        data_names = plot_config['data_names']
+    else:
+        data_names = [plot_config['data_name']]
+        
+    bar_data = []
+    
+    for measure_name in plot_config['measure_names']:
+        for infra_name in infra_names:
+            for data_name in data_names:
+                bar_data.append(np.mean(data[infra_name][measure_name][data_name]))  
+            
+    for x_coord in x:
+        ax.axvline(x_coord, **plot_config['v_line_config'])
+
+    ax.axhline(0, linewidth=2, color='k', linestyle='-', zorder=4)
+    ax.bar(x, mean_data, zorder=3, color=colors, **plot_config['mean_bar_config'])
+    set_ax_config(ax, plot_config['top_ax_config'])
+        
 def set_ax_config(ax, ax_config):
     if 'x_ticks' in ax_config:
         ax.set_xticks(ax_config['x_ticks'])
@@ -497,3 +534,171 @@ def set_ax_config(ax, ax_config):
             ax.set_title(ax_config['title'])
     if 'grid' in ax_config:
         ax.grid(**ax_config['grid'])
+
+
+def create_compare_plot(fig_config, divider_config, plots_config, data):
+    fig_title = None
+    if 'title' in fig_config:
+        fig_title = fig_config['title']
+        fig_config.pop('title')
+    fig = plt.figure(**fig_config)
+    if fig_title is not None:
+        fig.canvas.manager.set_window_title(fig_title)
+    
+    hor_division = [Size.Fixed(divider_config['left']), Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), 
+                    Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), Size.Scaled(1), Size.Fixed(divider_config['right'])]
+    ver_division = [Size.Fixed(divider_config['bottom']), Size.Scaled(1), Size.Fixed(divider_config['gap_ver']), Size.Scaled(divider_config['top_axes_scale']), Size.Fixed(divider_config['top'])]  
+    divider = Divider(fig, (0,0,1,1), hor_division, ver_division, aspect=False)
+    
+    main_axes = []
+    top_axes = []
+    for ax_nr in range(3):
+        main_ax = fig.add_axes((0,0,1,1), f'main_ax_{ax_nr}')
+        main_ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=1))
+        main_axes.append(main_ax)
+        
+        top_ax = fig.add_axes((0,0,1,1), f'top_ax_{ax_nr}')
+        top_ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=3))
+        top_axes.append(top_ax)
+        
+    for ax_nr, plot_config in enumerate(plots_config):
+        x, x_labels = get_x_coords(plot_config)
+        main_ax = main_axes[ax_nr]
+        top_ax = top_axes[ax_nr]
+        plot_config['main_ax_config'].update({'x_ticks':x_labels})
+        if plot_config['main_type'] == 'bar_plot':
+            bar_plot(main_ax, data, plot_config, x)
+        else:
+            box_plot(main_ax, data, plot_config, x)
+        
+        x_ticks = main_ax.get_xticks()
+        x_lim = main_ax.get_xlim() 
+        plot_config['top_ax_config'].update({'x_lim':x_lim, 'x_ticks':x_ticks})
+        
+        #mean_plot(top_ax, data, plot_config, x)
+           
+    plt.draw()   
+    
+def get_x_coords(plot_config):
+    x = []
+    x_labels = []
+    
+    if 'widths' not in plot_config['box_plot_config']:
+        width = 0.5 # mlp default
+    else:
+        width = plot_config['box_plot_config']['widths']
+        
+    measure_count = len(plot_config['measure_names'])
+    if 'infra_names' in plot_config:
+        infra_count = len(plot_config['infra_names'])
+    else:
+        infra_count = 1
+    if 'data_names' in plot_config:
+        data_count = len(plot_config['data_names'])
+    else:
+        data_count = 1
+
+    set_gap = max(0.2, 1-width)
+    set_width = width*infra_count*data_count
+
+    x_coord = width/2
+    for _ in range(measure_count):
+        x_start = x_coord
+        for _ in range(infra_count*data_count): 
+            x.append(x_coord)
+            x_coord += width
+        x_labels.append(x_start + (x_coord - width -  x_start)/2)
+        x_coord += set_gap
+    
+    return x, x_labels
+    
+def create_quartile_plot(fig_config, divider_config, plots_config, data):
+    fig_title = None
+    if 'title' in fig_config:
+        fig_title = fig_config['title']
+        fig_config.pop('title')
+    fig = plt.figure(**fig_config)
+    if fig_title is not None:
+        fig.canvas.manager.set_window_title(fig_title)
+    
+    hor_division = [Size.Fixed(divider_config['left']), Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), 
+                    Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), Size.Scaled(1), Size.Fixed(divider_config['right'])]
+    ver_division = [Size.Fixed(divider_config['bottom']), Size.Scaled(1), Size.Fixed(divider_config['gap_ver']), Size.Fixed(divider_config['v_legend']), Size.Fixed(divider_config['top'])]  
+    divider = Divider(fig, (0,0,1,1), hor_division, ver_division, aspect=False)
+    
+    ax_count = 3
+    
+    legend_ax = fig.add_axes((0,0,1,1), f'legend_ax')
+    legend_ax.set_axes_locator(divider.new_locator(nx=1,ny=3,nx1=1+ax_count*2))
+    legend_ax.set_axis_off()
+
+    plt.rcParams.update({'hatch.color': '0.6'})
+    plt.rcParams.update({'hatch.linewidth': '1'})
+
+    for ax_nr, plot_config in enumerate(plots_config):
+        ax = fig.add_axes((0,0,1,1), f'main_ax_{ax_nr}')
+        ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=1))
+    
+        x, x_labels = get_quartile_x_coords(plot_config)        
+        plot_config['ax_config'].update({'x_ticks':x_labels})
+        handles, labels = plot_quartile_bars(ax, data, plot_config, x)
+           
+    legend_ax.legend(handles, labels, **plot_config['legend_config'])
+    plt.draw()   
+    
+    
+def plot_quartile_bars(ax, data, plot_config, x):
+    quartile_labels = ['Q1', 'Q2', 'Q3', 'Q4']
+    handles = []
+    labels = []
+        
+    for jj, bar_set_config in enumerate(plot_config['bar_set_configs']):
+        quartiles = [[] for _ in range(len(quartile_labels))]
+        bottoms = [[] for _ in range(len(quartile_labels))]
+        
+        infra_name = bar_set_config['infra_name']
+        data_name = bar_set_config['data_name']
+        for measure_name in plot_config['measure_names']:
+            local_data = data[infra_name][measure_name][data_name] 
+            quartiles_local = stats.mstats.mquantiles(local_data)
+            bottoms[0].append(0)
+            for ii, value in enumerate(quartiles_local):
+                bottoms[ii+1].append(value)
+                quartiles[ii].append(value - bottoms[ii][-1])
+                
+            quartiles[3].append(np.max(local_data) - bottoms[3][-1])
+               
+        for ii in range(len(quartiles)):
+            bar_set_config['bar_plot_config']['alpha'] = 1 - 0.2*ii
+            bars = ax.bar(x[jj], quartiles[ii], label=f'{bar_set_config["label"]} - {quartile_labels[ii]}', bottom=bottoms[ii], zorder=3, **bar_set_config['bar_plot_config'])
+            handles.append(bars[0])
+            labels.append(bars._label)
+            
+    set_ax_config(ax, plot_config['ax_config'])
+    return handles, labels
+    
+def get_quartile_x_coords(plot_config):
+    width = plot_config['bar_set_configs'][0]['bar_plot_config']['width']
+        
+    measure_count = len(plot_config['measure_names'])
+   
+    
+    set_gap = plot_config['gap_size']
+    set_count = len(plot_config['bar_set_configs'])
+    
+    set_width = width*set_count
+
+    x = [[] for _ in range(measure_count)]
+    x_labels = []
+    
+    x_coord = width/2
+    for _ in range(measure_count):
+        x_start = x_coord
+        for ii in range(set_count): 
+            x[ii].append(x_coord)
+            x_coord += width
+        x_labels.append(x_start + (x_coord - width -  x_start)/2)
+        x_coord += set_gap
+    
+    return x, x_labels
+    
