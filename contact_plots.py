@@ -354,9 +354,7 @@ def create_base_case_paper_plot(fig_config, divider_config, plots_config, data):
         top_ax = fig.add_axes((0,0,1,1), f'top_ax_{ax_nr}')
         top_ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=3))
         top_axes.append(top_ax)
-        
-    
-        
+            
     for ax_nr, plot_config in enumerate(plots_config):
         x = list(range(1, len(plot_config['measure_names']) + 1))
         main_ax = main_axes[ax_nr]
@@ -370,7 +368,8 @@ def create_base_case_paper_plot(fig_config, divider_config, plots_config, data):
         x_lim = main_ax.get_xlim() 
         plot_config['top_ax_config'].update({'x_lim':x_lim, 'x_ticks':x_ticks})
         
-        mean_diff_plot(top_ax, data, plot_config, x)
+        threshold_quartile_plot(top_ax, data, plot_config, x)
+        #mean_diff_plot(top_ax, data, plot_config, x)
            
     plt.draw()
         
@@ -394,39 +393,130 @@ def box_plot(ax, data, plot_config, x):
     for x_coord in x:
         ax.axvline(x_coord, **plot_config['v_line_config'])
 
-    print(len(box_data))
-    print(len(x))
     ax.boxplot(box_data, positions=x, zorder=3, **plot_config['box_plot_config'])    
     set_ax_config(ax, plot_config['main_ax_config'])
  
-def bar_plot(ax, data, plot_config, x):
-    infra_name = plot_config['infra_name']
-    data_name = plot_config['data_name']
+def multi_box_plot(ax, data, plot_config, x):
+    handles = []
+    labels = []
     
+    for ii, sub_group in enumerate(plot_config['sub_groups']):
+        infra_name = sub_group['infra_name']
+        data_name = sub_group['data_name']        
+        
+        box_data = []
+        for measure_name in plot_config['measure_names']:
+            box_data.append(data[infra_name][measure_name][data_name])
+            
+        for x_coord in x[ii]:
+            ax.axvline(x_coord, **plot_config['v_line_config'])
+    
+        box_handles = ax.boxplot(box_data, positions=x[ii], zorder=3, **sub_group['box_plot_config'])    
+        handles.append(box_handles['boxes'][0])
+        labels.append(sub_group['label'])
+        
+    set_ax_config(ax, plot_config['main_ax_config'])
+    
+    return (handles, labels)
+ 
+def bar_border_line_plot(ax, data, plot_config, x):
+    handles = []
+    labels = []
+    
+    line_styles = ['-', '--', ':']
+    
+    for sub_group in plot_config['sub_groups']:
+        infra_name = sub_group['infra_name']
+        data_name = sub_group['data_name'] 
+        categories, _, value_2_rel_counts_per_measure = get_counts_per_value(plot_config['measure_names'], infra_name, data_name, data)
+        
+        prev_border_y = [0 for _ in plot_config['measure_names']]
+        if sub_group["label"] in ('base_case - 1.0', 'busy_corner - 1.0'):
+            print(f'{sub_group["label"]}')
+            print(categories)
+        for ii in range(len(categories) - 1):
+            category = categories[ii]
+            border_y = [prev_border_y[jj] + value_2_rel_counts_per_measure[measure_name][category] if category in value_2_rel_counts_per_measure[measure_name] else prev_border_y[jj] for jj, measure_name in enumerate(plot_config['measure_names'])]            
+            ax.plot(x, border_y, label=f'{sub_group["label"]} - ({categories[ii]} - {categories[ii+1]})', linestyle=line_styles[ii], **sub_group['line_plot_config'])
+            if sub_group["label"] in ('base_case - 1.0', 'busy_corner - 1.0'):
+                print(f'{sub_group["label"]} - ({categories[ii]} - {categories[ii+1]})')
+                print(prev_border_y)
+                print(border_y)
+                print([value_2_rel_counts_per_measure[measure_name][category] for measure_name in plot_config['measure_names']])
+            
+            prev_border_y = deepcopy(border_y)
+ 
+    ax.legend(**plot_config['bar_plot_legend_config'])
+    set_ax_config(ax, plot_config['main_ax_config'])
+ 
+def get_counts_per_value(measure_names, infra_name, data_name, data): 
     values = []
     value_2_counts_per_measure = {}
     value_2_rel_counts_per_measure = {}
-    for measure_name in plot_config['measure_names']:
+    
+    for measure_name in measure_names:
+        value_2_counts_per_measure[measure_name] = []
+        value_2_rel_counts_per_measure[measure_name] = []
         unique_values, value_counts = np.unique(data[infra_name][measure_name][data_name], return_counts=True)
         values.append(unique_values)
         value_2_counts_per_measure[measure_name] = dict(zip(unique_values, value_counts))
         value_2_rel_counts_per_measure[measure_name] = dict(zip(unique_values, value_counts/np.sum(value_counts)))
-        
-        
+                
+    categories = np.unique(np.concatenate(values)).tolist()
+    
+    return categories, value_2_counts_per_measure, value_2_rel_counts_per_measure   
+                
+def bar_plot(ax, data, plot_config, x):
+    if 'infra_names' in plot_config:
+        infra_names = plot_config['infra_names']
+    else:
+        infra_names = [plot_config['infra_name']]
+    
+    if 'data_names' in plot_config:
+        data_names = plot_config['data_names']
+    else:
+        data_names = [plot_config['data_name']]
+    
+    values = []
+    value_2_counts_per_measure = {}
+    value_2_rel_counts_per_measure = {}
+    
+    for measure_name in plot_config['measure_names']:
+        value_2_counts_per_measure[measure_name] = {}
+        value_2_rel_counts_per_measure[measure_name] = {}
+        for infra_name in infra_names:
+            value_2_counts_per_measure[measure_name][infra_name] = {}
+            value_2_rel_counts_per_measure[measure_name][infra_name] = {}
+            for data_name in data_names:
+                unique_values, value_counts = np.unique(data[infra_name][measure_name][data_name], return_counts=True)
+                values.append(unique_values)
+                value_2_counts_per_measure[measure_name][infra_name][data_name] = dict(zip(unique_values, value_counts))
+                value_2_rel_counts_per_measure[measure_name][infra_name][data_name] = dict(zip(unique_values, value_counts/np.sum(value_counts)))
+                    
     categories = np.unique(np.concatenate(values)).tolist()
     bar_data = {}
     text_data = {}
     bottoms = {}
+    column_count = len(plot_config['measure_names'])*len(infra_names)*len(data_names)
+    
     for ii, category in enumerate(categories):
-        bar_data[category] = [value_2_rel_counts_per_measure[measure_name][category] if category in value_2_rel_counts_per_measure[measure_name] else 0 for measure_name in plot_config['measure_names']]
-        text_data[category] = [value_2_counts_per_measure[measure_name][category] if category in value_2_rel_counts_per_measure[measure_name] else 0 for measure_name in plot_config['measure_names']]
+        bar_data[category]  = []
+        text_data[category]  = []
+        for measure_name in plot_config['measure_names']:
+            for infra_name in infra_names:
+                for data_name in data_names:
+                    rel_counts = value_2_rel_counts_per_measure[measure_name][infra_name][data_name]
+                    counts = value_2_counts_per_measure[measure_name][infra_name][data_name]
+                    bar_data[category].append(rel_counts[category] if category in rel_counts else 0)
+                    text_data[category].append(counts[category] if category in counts else 0)
+             
         if ii == 0:
             bottoms[category] = None
         elif ii == 1:
             bottoms[category] = bar_data[categories[ii-1]]
         else:
-            bottoms[category] = [bottoms[categories[ii-1]][jj] + bar_data[categories[ii-1]][jj] for jj in range(len(plot_config['measure_names']))]
-        
+            bottoms[category] = [bottoms[categories[ii-1]][jj] + bar_data[categories[ii-1]][jj] for jj in range(column_count)]
+    
         prev_category = category
         
     for x_coord in x:
@@ -477,6 +567,24 @@ def mean_diff_plot(ax, data, plot_config, x):
     ax.axhline(0, linewidth=2, color='k', linestyle='-', zorder=4)
     ax.bar(x, mean_data, zorder=3, color=colors, **plot_config['mean_bar_config'])
     set_ax_config(ax, plot_config['top_ax_config'])
+       
+def threshold_quartile_plot(ax, data, plot_config, x):
+    infra_name = plot_config['infra_name']
+    data_name = plot_config['data_name']
+    thresholds_config = plot_config['thresholds_config']
+    
+    for threshold_config in thresholds_config:
+        y = []
+        for measure_name in plot_config['measure_names']:
+            y.append(compute_quantile_value(data, infra_name, data_name, measure_name, threshold_config['value']))
+        ax.plot(x, y, **threshold_config['line_config'])
+        
+    set_ax_config(ax, plot_config['top_ax_config'])
+        
+def compute_quantile_value(data, infra_name, data_name, measure_name, threshold_value):
+    data_array = data[infra_name][measure_name][data_name]
+    return 1 - sum(data_array <= threshold_value)/len(data_array)
+    
         
 def mean_plot(ax, data, plot_config, x):
     if 'infra_names' in plot_config:
@@ -547,65 +655,82 @@ def create_compare_plot(fig_config, divider_config, plots_config, data):
     
     hor_division = [Size.Fixed(divider_config['left']), Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), 
                     Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), Size.Scaled(1), Size.Fixed(divider_config['right'])]
-    ver_division = [Size.Fixed(divider_config['bottom']), Size.Scaled(1), Size.Fixed(divider_config['gap_ver']), Size.Scaled(divider_config['top_axes_scale']), Size.Fixed(divider_config['top'])]  
+    ver_division = [Size.Fixed(divider_config['bottom']), Size.Scaled(1), Size.Fixed(divider_config['gap_ver']), Size.Fixed(divider_config['v_legend']), Size.Fixed(divider_config['top'])]  
     divider = Divider(fig, (0,0,1,1), hor_division, ver_division, aspect=False)
     
+    ax_count = 3
+    
+    legend_ax = fig.add_axes((0,0,1,1), f'legend_ax')
+    legend_ax.set_axes_locator(divider.new_locator(nx=1,ny=3,nx1=1+ax_count*2))
+    legend_ax.set_axis_off()
+    
     main_axes = []
-    top_axes = []
-    for ax_nr in range(3):
+    for ax_nr in range(ax_count):
         main_ax = fig.add_axes((0,0,1,1), f'main_ax_{ax_nr}')
         main_ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=1))
         main_axes.append(main_ax)
-        
-        top_ax = fig.add_axes((0,0,1,1), f'top_ax_{ax_nr}')
-        top_ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=3))
-        top_axes.append(top_ax)
-        
+    
     for ax_nr, plot_config in enumerate(plots_config):
         x, x_labels = get_x_coords(plot_config)
         main_ax = main_axes[ax_nr]
-        top_ax = top_axes[ax_nr]
         plot_config['main_ax_config'].update({'x_ticks':x_labels})
-        if plot_config['main_type'] == 'bar_plot':
-            bar_plot(main_ax, data, plot_config, x)
+        if plot_config['main_type'] == 'bar_border_line':
+            bar_border_line_plot(main_ax, data, plot_config, x_labels)
         else:
-            box_plot(main_ax, data, plot_config, x)
+            legend_info = multi_box_plot(main_ax, data, plot_config, x)
         
-        x_ticks = main_ax.get_xticks()
-        x_lim = main_ax.get_xlim() 
-        plot_config['top_ax_config'].update({'x_lim':x_lim, 'x_ticks':x_ticks})
-        
-        #mean_plot(top_ax, data, plot_config, x)
+
+    legend_ax.legend(*legend_info, **plot_config['legend_config'])
            
     plt.draw()   
     
 def get_x_coords(plot_config):
-    x = []
-    x_labels = []
+    if plot_config['main_type'] == 'bar_border_line':
+        x = list(range(1, len(plot_config['measure_names']) + 1))
+        return x, x
+   
+    x_per_group = False
     
-    if 'widths' not in plot_config['box_plot_config']:
-        width = 0.5 # mlp default
+    if 'sub_groups' in plot_config:
+        width = plot_config['sub_groups'][0]['box_plot_config']['widths']
+        x_per_group = True
+    elif 'widths' not in plot_config['box_plot_config']:
+        width = 0.5 # mlp default    
     else:
         width = plot_config['box_plot_config']['widths']
         
     measure_count = len(plot_config['measure_names'])
-    if 'infra_names' in plot_config:
-        infra_count = len(plot_config['infra_names'])
+    if x_per_group:
+        set_count = len(plot_config['sub_groups'])
     else:
-        infra_count = 1
-    if 'data_names' in plot_config:
-        data_count = len(plot_config['data_names'])
-    else:
-        data_count = 1
+        if 'infra_names' in plot_config:
+            infra_count = len(plot_config['infra_names'])
+        else:
+            infra_count = 1
+        if 'data_names' in plot_config:
+            data_count = len(plot_config['data_names'])
+        else:
+            data_count = 1
+
+        set_count = infra_count*data_count
 
     set_gap = max(0.2, 1-width)
-    set_width = width*infra_count*data_count
+    set_width = width*set_count
+
+    if x_per_group:
+        x = [[] for _ in range(set_count)]
+    else:
+        x = []
+    x_labels = []
 
     x_coord = width/2
     for _ in range(measure_count):
         x_start = x_coord
-        for _ in range(infra_count*data_count): 
-            x.append(x_coord)
+        for ii in range(set_count): 
+            if x_per_group:
+                x[ii].append(x_coord)
+            else:
+                x.append(x_coord)
             x_coord += width
         x_labels.append(x_start + (x_coord - width -  x_start)/2)
         x_coord += set_gap
@@ -632,16 +757,13 @@ def create_quartile_plot(fig_config, divider_config, plots_config, data):
     legend_ax.set_axes_locator(divider.new_locator(nx=1,ny=3,nx1=1+ax_count*2))
     legend_ax.set_axis_off()
 
-    plt.rcParams.update({'hatch.color': '0.6'})
-    plt.rcParams.update({'hatch.linewidth': '1'})
-
     for ax_nr, plot_config in enumerate(plots_config):
         ax = fig.add_axes((0,0,1,1), f'main_ax_{ax_nr}')
         ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=1))
     
-        x, x_labels = get_quartile_x_coords(plot_config)        
-        plot_config['ax_config'].update({'x_ticks':x_labels})
-        handles, labels = plot_quartile_bars(ax, data, plot_config, x)
+        x = list(range(1,len(plot_config['measure_names'])+1))  
+        plot_config['ax_config'].update({'x_ticks':x})
+        handles, labels = plot_quartile_lines(ax, data, plot_config, x)
            
     legend_ax.legend(handles, labels, **plot_config['legend_config'])
     plt.draw()   
@@ -676,6 +798,37 @@ def plot_quartile_bars(ax, data, plot_config, x):
             
     set_ax_config(ax, plot_config['ax_config'])
     return handles, labels
+
+def plot_quartile_lines(ax, data, plot_config, x):
+    quartile_labels = ['Q1', 'Q2', 'Q3', 'Q4']
+    line_styles = ['-', '--', ':', '-.']
+    handles = []
+    labels = []
+        
+    for line_plot_config in plot_config['line_plot_configs']:
+        quartiles = [[] for _ in range(len(quartile_labels))]
+               
+        infra_name = line_plot_config['infra_name']
+        data_name = line_plot_config['data_name']
+        for measure_name in plot_config['measure_names']:
+            local_data = data[infra_name][measure_name][data_name] 
+            quartiles_local = stats.mstats.mquantiles(local_data)
+            
+            for ii, value in enumerate(quartiles_local):
+                 quartiles[ii].append(value)
+                
+            quartiles[3].append(np.max(local_data))
+               
+        for ii in range(len(quartiles)):
+            line_plot_config['line_config']['linestyle'] = line_styles[ii]
+            line = ax.plot(x, quartiles[ii], label=f'{line_plot_config["label"]} - {quartile_labels[ii]}', zorder=3, **line_plot_config['line_config'])
+            handles.append(line[0])
+            labels.append(line[0].get_label())
+            
+    set_ax_config(ax, plot_config['ax_config'])
+    return handles, labels
+    
+  
     
 def get_quartile_x_coords(plot_config):
     width = plot_config['bar_set_configs'][0]['bar_plot_config']['width']
