@@ -6,6 +6,7 @@ Created on 13 Jul 2021
 
 import json
 from scipy import stats
+from math import sqrt
 
 from mpl_toolkits.axes_grid1.axes_divider import Divider
 import mpl_toolkits.axes_grid1.axes_size as Size
@@ -60,23 +61,40 @@ def get_cdf_of_data(contact_data):
     
     return sorted_data, p 
 
-def do_chi_square_test(base_array, compare_array):
-    base_values, base_counts = np.unique(base_array, return_counts=True)
-    base_counts = base_counts/sum(base_counts)
-    base_counts_dict = dict(zip(base_values, base_counts))
-    compare_values, compare_counts = np.unique(compare_array, return_counts=True)
-    compare_counts = compare_counts/sum(compare_counts)
-    compare_counts_dict = dict(zip(compare_values, compare_counts))
-    values = np.unique(np.concatenate((base_values, compare_values)))
-    
-    
-    base_counts = [base_counts_dict[value] if value in base_counts_dict else 0 for value in values]
-    compare_counts = [compare_counts_dict[value] if value in compare_counts_dict else 0 for value in values]
+def do_chi_square_test(base_array, compare_array, normalize=True):
+    base_counts, compare_counts, values = get_value_counts(base_array, compare_array, normalize)
     
     if len(values) == 1:
         return 1.0
     
     res = stats.chisquare(compare_counts, base_counts)
+    return res.pvalue    
+
+def get_value_counts(base_array, compare_array, normalize):
+    base_values, base_counts = np.unique(base_array, return_counts=True)
+    if normalize:
+        base_counts = base_counts/sum(base_counts)
+    base_counts_dict = dict(zip(base_values, base_counts))
+    compare_values, compare_counts = np.unique(compare_array, return_counts=True)
+    if normalize:
+        compare_counts = compare_counts/sum(compare_counts)
+    else:
+        compare_counts = compare_counts/sum(compare_counts)*sum(base_counts)
+    compare_counts_dict = dict(zip(compare_values, compare_counts))
+    values = np.unique(np.concatenate((base_values, compare_values)))
+    
+    base_counts = [base_counts_dict[value] if value in base_counts_dict else 0 for value in values]
+    compare_counts = [compare_counts_dict[value] if value in compare_counts_dict else 0 for value in values]
+        
+    return base_counts, compare_counts, values
+
+def do_power_divergence_test(base_array, compare_array, normalize=False):
+    base_counts, compare_counts, values = get_value_counts(base_array, compare_array, normalize)
+    
+    if len(values) == 1:
+        return 1.0
+    
+    res = stats.power_divergence(compare_counts, base_counts)
     return res.pvalue    
 
 def plot_convergence(exp_info_filename):
@@ -855,3 +873,50 @@ def get_quartile_x_coords(plot_config):
     
     return x, x_labels
     
+def print_diff_stats(cut_off_dist, interaction_type_all, infra_name, parts_2_data_name, data_types, measures_and_labels, infra_and_measure_name_2_data, max_label_len, normalize=False):
+    data_name_slice = parts_2_data_name[cut_off_dist][interaction_type_all]
+    print(f'cut-off dist = {cut_off_dist}, interaction type = {interaction_type_all}, infra = {infra_name}')
+    for data_type in data_types:
+        
+        if data_type == 'weight_over_contacts' and interaction_type_all == 'customer_staff':
+            data_name = parts_2_data_name[cut_off_dist]['staff_customer'][data_type]            
+        else:
+            data_name = data_name_slice[data_type]
+        print(f'----------- {data_type} -----------')
+        
+        combs_processed = []
+        for measure_name, label in measures_and_labels:
+            data_array = infra_and_measure_name_2_data[infra_name][measure_name][data_name]
+            for other_measure_name, other_label in measures_and_labels:
+                if measure_name == other_measure_name or (other_measure_name, measure_name) in combs_processed:
+                    continue
+                combs_processed.append((measure_name, other_measure_name))
+                other_data_array = infra_and_measure_name_2_data[infra_name][other_measure_name][data_name]
+                if 'contacts_over_agents' in data_name and interaction_type_all == 'customer_staff':
+                    p_value = do_chi_square_test(data_array, other_data_array, normalize)
+                    effect_size = get_effect_size(data_array, other_data_array, categorical=True)
+                else:
+                    res = stats.cramervonmises_2samp(data_array, other_data_array)
+                    p_value = res.pvalue        
+                    effect_size = get_effect_size(data_array, other_data_array)
+                if p_value < 0.001:
+                    sig = 'true'
+                else:
+                    sig = 'FALSE'
+                    
+                print(f'{label:>{max_label_len}s} - {other_label:>{max_label_len}s} = {p_value:.5f}, {sig:>5}, {effect_size:>-8.5f}')
+        print('\n')
+        
+def get_effect_size(data_array, other_data_array, categorical=False):
+    # Cohen's d (or w for categorical)
+    if categorical:
+        base_counts, compare_counts, _ = get_value_counts(data_array, other_data_array, False)
+        return sqrt(np.sum([(compare_count/sum(compare_counts) - base_count/sum(base_counts))**2/(base_count/sum(base_counts)) for base_count, compare_count in zip(base_counts, compare_counts)]))
+        
+    n1 = len(data_array)
+    n2 = len(other_data_array)
+    s1_pow2 = np.var(data_array, ddof=1)
+    s2_pow2 = np.var(other_data_array, ddof=1)
+    s = sqrt(((n1 - 1)*s1_pow2 + (n2 - 1)*s2_pow2)/(n1 + n2 - 2))
+    
+    return (np.mean(data_array) - np.mean(other_data_array))/s
