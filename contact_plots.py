@@ -4,6 +4,7 @@ Created on 13 Jul 2021
 @author: Martijn Sparnaaij
 '''
 
+import csv
 import json
 from scipy import stats
 from math import sqrt
@@ -15,7 +16,10 @@ import matplotlib.pyplot as plt
 from matplotlib import cm
 import matplotlib
 import numpy as np
+import pandas as pd
 from copy import deepcopy
+import xlsxwriter
+from cliffs_delta import cliffs_delta
 
 
 def get_data_from_files(data_folder, convert_2_minutes=False):
@@ -391,6 +395,26 @@ def create_base_case_paper_plot(fig_config, divider_config, plots_config, data):
            
     plt.draw()
         
+def create_and_save_box_paper_plot(fig_config, save_filename, divider_config, plots_config, data):
+    fig = plt.figure(**fig_config)
+    hor_division = [Size.Fixed(divider_config['left']), Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), 
+                    Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), Size.Scaled(1), Size.Fixed(divider_config['right'])]
+    ver_division = [Size.Fixed(divider_config['bottom']), Size.Scaled(1), Size.Fixed(divider_config['top'])]  
+    divider = Divider(fig, (0,0,1,1), hor_division, ver_division, aspect=False)
+    
+    for ax_nr, plot_config in enumerate(plots_config):
+        ax = fig.add_axes((0,0,1,1), f'main_ax_{ax_nr}')
+        ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=1))
+        
+        x = list(range(1, len(plot_config['measure_names']) + 1))
+        if plot_config['main_type'] == 'bar_plot':
+            bar_plot(ax, data, plot_config, x)
+        else:
+            box_plot(ax, data, plot_config, x)
+        
+    plt.savefig(save_filename, dpi=300)
+    
+        
 def box_plot(ax, data, plot_config, x):
     if 'infra_names' in plot_config:
         infra_names = plot_config['infra_names']
@@ -543,16 +567,16 @@ def bar_plot(ax, data, plot_config, x):
     for category in categories:
         ax.bar(x, bar_data[category], label=f'{category}', bottom=bottoms[category], zorder=3, **plot_config['bar_plot_config'])
 
-    for category in categories:
-        for ii, x_coord in enumerate(x):
-            if bottoms[category] is None:
-                y_bottom = 0
-            else:
-                y_bottom = bottoms[category][ii]
-            
-            y_coord = y_bottom + bar_data[category][ii]/2
-            count = text_data[category][ii]
-            ax.text(x_coord, y_coord, f'{count}', zorder=4, **plot_config['bar_plot_text_config'])
+    # for category in categories:
+    #     for ii, x_coord in enumerate(x):
+    #         if bottoms[category] is None:
+    #             y_bottom = 0
+    #         else:
+    #             y_bottom = bottoms[category][ii]
+    #
+    #         y_coord = y_bottom + bar_data[category][ii]/2
+    #         count = text_data[category][ii]
+    #         ax.text(x_coord, y_coord, f'{count}', zorder=4, **plot_config['bar_plot_text_config'])
             
     ax.set_xticks(x)
     ax.legend(**plot_config['bar_plot_legend_config'])
@@ -903,9 +927,170 @@ def print_diff_stats(cut_off_dist, interaction_type_all, infra_name, parts_2_dat
                     sig = 'true'
                 else:
                     sig = 'FALSE'
-                    
+
+                   
                 print(f'{label:>{max_label_len}s} - {other_label:>{max_label_len}s} = {p_value:.5f}, {sig:>5}, {effect_size:>-8.5f}')
         print('\n')
+        
+        
+def print_diff_stats_table(cut_off_dist, interaction_type_all, infra_name, parts_2_data_name, data_types, measures_and_labels, infra_and_measure_name_2_data, normalize=False):
+    data_name_slice = parts_2_data_name[cut_off_dist][interaction_type_all]
+
+    columns = []
+    print(f',,', end='')
+    for ii, (measure_name, label) in enumerate(measures_and_labels):
+        if ii == 0:
+            continue
+        columns.append((measure_name, label))
+        print(f',{label},,,,', end='')
+    
+    print('')
+    print(f',,,{",".join(["p_value", "cliff_d_val", "cliff_d_cat", "ks_stat", "ks_p_value"]*(len(measures_and_labels) - 1))}')
+    
+    print(f'{infra_name} - {cut_off_dist} - {interaction_type_all}', end='')
+    for data_type in data_types:
+        print(f',{data_type}', end='')
+        if data_type == 'weight_over_contacts' and interaction_type_all == 'customer_staff':
+            data_name = parts_2_data_name[cut_off_dist]['staff_customer'][data_type]            
+        else:
+            data_name = data_name_slice[data_type]
+        
+        printed_data = set()
+        for ii, (measure_name, label) in enumerate(measures_and_labels):
+            if ii == len(measures_and_labels) - 1:
+                continue    
+            data_array = infra_and_measure_name_2_data[infra_name][measure_name][data_name]
+            if ii == 0:
+                print(f',{label}', end='')
+            else:
+                print(f',,{label}', end='')
+            for other_measure_name, other_label in columns:
+                if measure_name == other_measure_name or (other_measure_name, measure_name) in printed_data:
+                    print(',,,,,', end='')
+                    continue
+                 
+                other_data_array = infra_and_measure_name_2_data[infra_name][other_measure_name][data_name]
+                
+                p_value = get_p_value_to_print(data_array, other_data_array, data_name, interaction_type_all, normalize=normalize)
+                cliff_d_val, cliff_d_cat  = cliffs_delta(data_array, other_data_array)
+                ks_res = stats.ks_2samp(data_array, other_data_array)
+              
+                printed_data.add((measure_name, other_measure_name))
+                print(f',{p_value:.4f},{cliff_d_val:.4f},{cliff_d_cat},{ks_res.statistic:.4f},{ks_res.pvalue:.4f}', end='')
+                     
+            print('')
+        
+        print('')        
+                
+                
+def print_diff_stats_table_inter_infra(cut_off_dist, interaction_type_all, infra_name_combs, parts_2_data_name, data_types, measures_and_labels, infra_and_measure_name_2_data, normalize=False):
+    data_name_slice = parts_2_data_name[cut_off_dist][interaction_type_all]
+
+    columns = []
+    print(f',,', end='')
+    for measure_name, label in measures_and_labels:
+        columns.append((measure_name, label))
+        print(f',{label},,,,', end='')
+    
+    print('')
+    print(f',,,{",".join(["p_value", "cliff_d_val", "cliff_d_cat", "ks_stat", "ks_p_value"]*len(measures_and_labels))}')
+    
+    print(f'{cut_off_dist} - {interaction_type_all}', end='')
+    for data_type in data_types:
+        print(f',{data_type}', end='')
+        if data_type == 'weight_over_contacts' and interaction_type_all == 'customer_staff':
+            data_name = parts_2_data_name[cut_off_dist]['staff_customer'][data_type]            
+        else:
+            data_name = data_name_slice[data_type]
+        
+        for ii, (infra_name, other_infra_name) in enumerate(infra_name_combs):
+            if ii == 0:
+                print(f',{infra_name} - {other_infra_name}', end='')
+            else:
+                print(f',,{infra_name} - {other_infra_name}', end='')
+                   
+            
+            for measure_name, label in measures_and_labels:
+                data_array = infra_and_measure_name_2_data[infra_name][measure_name][data_name]
+                other_data_array = infra_and_measure_name_2_data[other_infra_name][measure_name][data_name]
+                
+         
+                p_value = get_p_value_to_print(data_array, other_data_array, data_name, interaction_type_all, normalize=normalize)
+                cliff_d_val, cliff_d_cat  = cliffs_delta(data_array, other_data_array)
+                ks_res = stats.ks_2samp(data_array, other_data_array)
+              
+                print(f',{p_value:.4f},{cliff_d_val:.4f},{cliff_d_cat},{ks_res.statistic:.4f},{ks_res.pvalue:.4f}', end='')
+            print('')    
+        
+        print('') 
+        
+def print_diff_stats_table_inter_dist(cut_off_dist_combs, interaction_type_all, infra_name, parts_2_data_name, data_types, measures_and_labels, infra_and_measure_name_2_data, normalize=False):
+    columns = []
+    print(f',,', end='')
+    for measure_name, label in measures_and_labels:
+        columns.append((measure_name, label))
+        print(f',{label},,,,', end='')
+    
+    print('')
+    print(f',,,{",".join(["p_value", "cliff_d_val", "cliff_d_cat", "ks_stat", "ks_p_value"]*len(measures_and_labels))}')
+    
+    print(f'{infra_name} - {interaction_type_all}', end='')
+    for data_type in data_types:
+        print(f',{data_type}', end='')
+        for ii, (cut_off_dist, other_cut_off_dist) in enumerate(cut_off_dist_combs):
+            if ii == 0:
+                print(f',{cut_off_dist} - {other_cut_off_dist}', end='')
+            else:
+                print(f',,{cut_off_dist} - {other_cut_off_dist}', end='')
+
+            if data_type == 'weight_over_contacts' and interaction_type_all == 'customer_staff':
+                data_name = parts_2_data_name[cut_off_dist]['staff_customer'][data_type]
+                other_data_name = parts_2_data_name[other_cut_off_dist]['staff_customer'][data_type]            
+            else:
+                data_name = parts_2_data_name[cut_off_dist][interaction_type_all][data_type]
+                other_data_name = parts_2_data_name[other_cut_off_dist][interaction_type_all][data_type]
+                       
+            for measure_name, label in measures_and_labels:
+                data_array = infra_and_measure_name_2_data[infra_name][measure_name][data_name]
+                other_data_array = infra_and_measure_name_2_data[infra_name][measure_name][other_data_name]
+                
+                p_value = get_p_value_to_print(data_array, other_data_array, data_name, interaction_type_all, normalize=normalize)
+                cliff_d_val, cliff_d_cat  = cliffs_delta(data_array, other_data_array)
+                ks_res = stats.ks_2samp(data_array, other_data_array)
+              
+                print(f',{p_value:.4f},{cliff_d_val:.4f},{cliff_d_cat},{ks_res.statistic:.4f},{ks_res.pvalue:.4f}', end='')
+            print('')    
+        print('')
+        
+                
+def get_effect_size_to_print(data_array, other_data_array, data_name, interaction_type_all):
+    if 'contacts_over_agents' in data_name and interaction_type_all == 'customer_staff':
+        effect_size = get_effect_size(data_array, other_data_array, categorical=True)
+    else:
+        effect_size = get_effect_size(data_array, other_data_array)
+        
+    return effect_size
+
+def get_p_value_to_print(data_array, other_data_array, data_name, interaction_type_all, normalize):
+    if 'contacts_over_agents' in data_name and interaction_type_all == 'customer_staff':
+        p_value = do_chi_square_test(data_array, other_data_array, normalize=normalize)
+    else:
+        res = stats.cramervonmises_2samp(data_array, other_data_array)
+        p_value = res.pvalue    
+        
+    return p_value
+
+                    
+def print_top_line(measures_and_labels): 
+    columns = []
+    for ii, (measure_name, label) in enumerate(measures_and_labels):
+        if ii == 0:
+            continue
+        print(f',{label}', end='')
+        columns.append((measure_name, label))
+            
+    print('')
+    return columns
         
 def get_effect_size(data_array, other_data_array, categorical=False):
     # Cohen's d (or w for categorical)
@@ -920,3 +1105,100 @@ def get_effect_size(data_array, other_data_array, categorical=False):
     s = sqrt(((n1 - 1)*s1_pow2 + (n2 - 1)*s2_pow2)/(n1 + n2 - 2))
     
     return (np.mean(data_array) - np.mean(other_data_array))/s
+
+def create_csv(csv_pd, cut_off_dist, interaction_type_all, infra_name, parts_2_data_name, data_types, infra_and_measure_name_2_data, measures_and_labels):
+    data_name_slice = parts_2_data_name[cut_off_dist][interaction_type_all]
+    cut_off_dist_str = '_'.join(cut_off_dist.split('.'))
+    for data_type in data_types:
+        if data_type == 'weight_over_contacts' and interaction_type_all == 'customer_staff':
+            data_name = parts_2_data_name[cut_off_dist]['staff_customer'][data_type]            
+        else:
+            data_name = data_name_slice[data_type]
+            
+        df_dict = {}
+        for measure_name, _ in measures_and_labels:
+            df_dict[measure_name] = infra_and_measure_name_2_data[infra_name][measure_name][data_name]
+            
+        df = pd.DataFrame({k:pd.Series(v) for k,v in df_dict.items()})
+        csv_filename = csv_pd.joinpath(f'{infra_name}_{interaction_type_all}_{cut_off_dist_str}_{data_type}.csv')
+        df.to_csv(csv_filename)
+    
+def get_effect_sizes_from_csvs(data_folder):
+    csv_files = get_combined_csv_files_from_dir(data_folder)
+    rows_2_csv = []
+    for csv_filename in csv_files:
+        rows_2_csv += process_effect_sizes_csv(csv_filename)
+    
+    output_filename = data_folder.joinpath(f'effect_sizes.xlsx')
+    
+    workbook = xlsxwriter.Workbook(output_filename)
+    worksheet = workbook.add_worksheet()
+    
+    for row_ind, row in enumerate(rows_2_csv):
+        for col_ind, row_entry in enumerate(row):
+            worksheet.write(row_ind, col_ind, row_entry)
+    
+    workbook.close()
+    
+def read_data_from_csv(csv_filename):
+    header = None
+    data_rows = []
+    with open(csv_filename, newline='') as csv_file:
+        rows = csv.reader(csv_file, delimiter=',')
+        for row in rows:
+            if header is None:
+               header = row
+               continue
+            data_rows.append(row)   
+            
+    return header, data_rows
+            
+def process_effect_sizes_csv(csv_filename):
+    header, data_rows = read_data_from_csv(csv_filename)
+    rows_2_csv = [[csv_filename.name[:-7]],[''] + header[5:] + [''] + header[5:]]
+    effect_size_labels = header[1:5]
+    effect_size_labels[0] = 'N'
+    for data_row in data_rows:
+        rows_2_csv.append(process_effect_size_row(data_row, effect_size_labels))
+    
+    rows_2_csv.append([])
+    
+    return rows_2_csv
+
+def process_effect_size_row(data_row, effect_size_labels):
+    row_data = []
+    name = data_row[0]
+    effect_size_thresholds = [float(v) for v in data_row[1:5]]
+    effect_size_num = [float(v) for v in data_row[5:]]
+    effect_size_str = []
+    threshold_count = len(effect_size_labels)
+    for effect_size in effect_size_num:
+        if effect_size < effect_size_thresholds[0]:
+            if effect_size_thresholds[0] == 0:
+                effect_size = -effect_size
+            elif effect_size_thresholds[0] == 0.5 and effect_size_thresholds[1] > effect_size_thresholds[0]: 
+                effect_size = 1 - effect_size
+        elif effect_size_thresholds[0] == 0.5 and effect_size_thresholds[1] < effect_size_thresholds[0] and effect_size > effect_size_thresholds[0]: 
+            effect_size = 1 - effect_size
+                
+        for ii in range(threshold_count):
+            if ii == threshold_count - 1:
+                effect_size_str.append(effect_size_labels[-1])
+            else:
+                if effect_size_thresholds[1] > effect_size_thresholds[0]:
+                    if effect_size >= effect_size_thresholds[ii] and effect_size < effect_size_thresholds[ii + 1]:
+                        effect_size_str.append(f'{effect_size_labels[ii]} - {effect_size_labels[ii+1]}')
+                        break  
+                else:
+                    if effect_size <= effect_size_thresholds[ii] and effect_size > effect_size_thresholds[ii + 1]:
+                        effect_size_str.append(f'{effect_size_labels[ii]} - {effect_size_labels[ii+1]}')
+                        break  
+        
+    return [name] + effect_size_str + [''] + effect_size_num
+
+def get_combined_csv_files_from_dir(data_folder):
+    csv_files = []
+    for entry in data_folder.iterdir():
+        if entry.is_file() and entry.suffix == '.csv' and '_ES' in entry.name:
+            csv_files.append(entry)
+    return csv_files
