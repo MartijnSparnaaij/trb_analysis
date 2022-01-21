@@ -4,23 +4,22 @@ Created on 13 Jul 2021
 @author: Martijn Sparnaaij
 '''
 
+from copy import deepcopy
 import csv
 import json
-from scipy import stats
 from math import sqrt
+from scipy import stats
 
-from mpl_toolkits.axes_grid1.axes_divider import Divider
-import mpl_toolkits.axes_grid1.axes_size as Size
-
-import matplotlib.pyplot as plt
 from matplotlib import cm
 import matplotlib
+from mpl_toolkits.axes_grid1.axes_divider import Divider
+import xlsxwriter
+
+from cliffs_delta import cliffs_delta
+import matplotlib.pyplot as plt
+import mpl_toolkits.axes_grid1.axes_size as Size
 import numpy as np
 import pandas as pd
-from copy import deepcopy
-import xlsxwriter
-from cliffs_delta import cliffs_delta
-
 
 def get_data_from_files(data_folder, convert_2_minutes=False):
     combined_data_files = get_combined_data_files_from_dir(data_folder)
@@ -383,37 +382,99 @@ def create_base_case_paper_plot(fig_config, divider_config, plots_config, data):
         top_ax = top_axes[ax_nr]
         if plot_config['main_type'] == 'bar_plot':
             bar_plot(main_ax, data, plot_config, x)
+        elif plot_config['main_type'] == 'cdf_plot':
+            cdf_plot(main_ax, data, plot_config)
         else:
             box_plot(main_ax, data, plot_config, x)
         
-        x_ticks = main_ax.get_xticks()
-        x_lim = main_ax.get_xlim() 
-        plot_config['top_ax_config'].update({'x_lim':x_lim, 'x_ticks':x_ticks})
-        
-        threshold_quartile_plot(top_ax, data, plot_config, x)
-        #mean_diff_plot(top_ax, data, plot_config, x)
+        if 'top_ax_config' in plot_config:
+            x_ticks = main_ax.get_xticks()
+            x_lim = main_ax.get_xlim() 
+            plot_config['top_ax_config'].update({'x_lim':x_lim, 'x_ticks':x_ticks})
+            
+            threshold_quartile_plot(top_ax, data, plot_config, x)
+            #mean_diff_plot(top_ax, data, plot_config, x)
            
     plt.draw()
+
         
 def create_and_save_box_paper_plot(fig_config, save_filename, divider_config, plots_config, data):
     fig = plt.figure(**fig_config)
-    hor_division = [Size.Fixed(divider_config['left']), Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), 
-                    Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), Size.Scaled(1), Size.Fixed(divider_config['right'])]
-    ver_division = [Size.Fixed(divider_config['bottom']), Size.Scaled(1), Size.Fixed(divider_config['top'])]  
-    divider = Divider(fig, (0,0,1,1), hor_division, ver_division, aspect=False)
+    
+    axes = create_axes(divider_config, plots_config, fig)
     
     for ax_nr, plot_config in enumerate(plots_config):
-        ax = fig.add_axes((0,0,1,1), f'main_ax_{ax_nr}')
-        ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=1))
+        ax = axes[ax_nr]
         
         x = list(range(1, len(plot_config['measure_names']) + 1))
         if plot_config['main_type'] == 'bar_plot':
             bar_plot(ax, data, plot_config, x)
+        elif plot_config['main_type'] == 'cdf_plot':
+            cdf_plot(ax, data, plot_config)
+        elif plot_config['main_type'] == 'violin_plot':
+            violin_plot(ax, data, plot_config, x)
         else:
             box_plot(ax, data, plot_config, x)
         
     plt.savefig(save_filename, dpi=300)
+            
+def create_axes(divider_config, plots_config, fig):
+    hor_axes_locs = []
+    ver_axes_locs = []
+
+    for ax_nr, plot_config in enumerate(plots_config):
+        if 'ax_loc' in plot_config:
+            hor_axes_locs.append(plot_config['ax_loc'][0])
+            ver_axes_locs.append(plot_config['ax_loc'][1])
+        else:
+           hor_axes_locs.append(ax_nr)
+           if 0 not in ver_axes_locs:
+               ver_axes_locs.append(0)
     
+    hor_ax_count = max(hor_axes_locs) + 1
+    ver_axes_locs = max(ver_axes_locs) + 1
+    
+    hor_division = [Size.Fixed(divider_config['left'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_hor'])]*(hor_ax_count - 1) + [Size.Scaled(1), Size.Fixed(divider_config['right'])]
+    ver_division = [Size.Fixed(divider_config['bottom'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_ver'])]*(ver_axes_locs - 1) + [Size.Scaled(1), Size.Fixed(divider_config['top'])]  
+    divider = Divider(fig, (0,0,1,1), hor_division, ver_division, aspect=False)
+
+    axes = []
+    for ax_nr, plot_config in enumerate(plots_config):
+        if 'ax_loc' in plot_config:
+            hor_axes_nr = plot_config['ax_loc'][0]
+            ver_axes_nr = plot_config['ax_loc'][1]
+        else:
+            hor_axes_nr = ax_nr
+            ver_axes_nr = 0
+
+        nx = 1 + 2*hor_axes_nr
+        ny = 1 + 2*ver_axes_nr
+            
+        ax = fig.add_axes((0,0,1,1), f'main_ax_{ax_nr}')
+        ax.set_axes_locator(divider.new_locator(nx=nx,ny=ny))
+        axes.append(ax)
+    
+    return axes
+        
+def cdf_plot(ax, data, plot_config):
+    if 'infra_names' in plot_config:
+        infra_names = plot_config['infra_names']
+    else:
+        infra_names = [plot_config['infra_name']]
+    
+    if 'data_names' in plot_config:
+        data_names = plot_config['data_names']
+    else:
+        data_names = [plot_config['data_name']]
+    
+    box_data = []
+    for measure_name in plot_config['measure_names']:
+        for infra_name in infra_names:
+            for data_name in data_names:
+                x, y = get_cdf_of_data(data[infra_name][measure_name][data_name])
+                ax.plot(x,y)
+    
+    ax.legend()
         
 def box_plot(ax, data, plot_config, x):
     if 'infra_names' in plot_config:
@@ -438,6 +499,40 @@ def box_plot(ax, data, plot_config, x):
     ax.boxplot(box_data, positions=x, zorder=3, **plot_config['box_plot_config'])    
     set_ax_config(ax, plot_config['main_ax_config'])
  
+def violin_plot(ax, data, plot_config, x):
+    if 'infra_names' in plot_config:
+        infra_names = plot_config['infra_names']
+    else:
+        infra_names = [plot_config['infra_name']]
+    
+    if 'data_names' in plot_config:
+        data_names = plot_config['data_names']
+    else:
+        data_names = [plot_config['data_name']]
+    
+    box_data = []
+    for measure_name in plot_config['measure_names']:
+        for infra_name in infra_names:
+            for data_name in data_names:
+                box_data.append(data[infra_name][measure_name][data_name])
+        
+    for x_coord in x:
+        ax.axvline(x_coord, **plot_config['v_line_config'])
+
+    parts = ax.violinplot(box_data, positions=x, **plot_config['violin_plot_config'])
+    
+    for pc in parts['bodies']:
+        if 'edge_color' in plot_config['violin_body_plot_config']:
+            pc.set_edgecolor(plot_config['violin_body_plot_config']['edge_color'])
+        if 'face_color' in plot_config['violin_body_plot_config']:    
+            pc.set_facecolor(plot_config['violin_body_plot_config']['face_color'])
+        if 'alpha' in plot_config['violin_body_plot_config']:    
+            pc.set_alpha(plot_config['violin_body_plot_config']['alpha'])
+        
+
+    ax.boxplot(box_data, positions=x, zorder=3, **plot_config['box_plot_config'])    
+    set_ax_config(ax, plot_config['main_ax_config'])
+    
 def multi_box_plot(ax, data, plot_config, x):
     handles = []
     labels = []
