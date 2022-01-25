@@ -26,7 +26,6 @@ from NOMAD.xml_scenario_input import getOutputFolder
 import numpy as np
 
 
-
 MAX_REPLICATIONS = 5000
 INIT_REPLICATIONS = 30
 CONSECUTIVE_STEPS = 5
@@ -935,3 +934,87 @@ def continue_experiment(experiment_config_filename):
     exp_runner.init_experiment_from_state(experiment_config)
     exp_runner.run_experiment()
     return exp_runner
+
+
+# ================================================================================================
+def get_agent_count_data(output_filename, config_filenames):
+    count_per_set = {}
+    
+    for config_filename in config_filenames:
+        count_data, infra_name, measure_name = get_count_data_from_config_file(config_filename)
+        if infra_name not in count_per_set:
+            count_per_set[infra_name] = {}
+        
+        count_per_set[infra_name][measure_name] = count_data
+        
+    with open(output_filename, 'w') as f:
+        json.dump(count_per_set, f, indent=4)    
+
+    
+def get_count_data_from_config_file(config_filename):
+    with open(experiment_config_filename, 'r') as f:
+        experiment_config = json.load(f) 
+
+    scen_name = config_filename.stem.replace('_scenario_experiment.config.json', '')
+    name_parts = scen_name.split('_')
+    infra_name = '_'.join(name_parts[:2])
+    measure_name = '_'.join(name_parts[2:])
+
+    experiment_state_filename = Path(experiment_config['main_dir']).joinpath(experiment_state['experiment_state_filename'])
+    with open(experiment_state_filename, 'r') as f:
+        experiment_state = json.load(f) 
+
+    scenario_filenames = get_scenario_filenames(experiment_state_filename.parent.parent, experiment_state['successful_replications'])
+
+    agent_count, has_contact_count = get_count_data_from_scen_files(scenario_filenames, experiment_state['cut_off_distances'])
+
+    count_data = {'replication_count':experiment_state['successful_replication_count'],
+                  'agent_count':agent_count, 'has_contact_count':has_contact_count}
+
+    return count_data, infra_name, measure_name
+
+def get_scenario_filenames(pd, seeds):
+    if isinstance(seeds[0], str):
+        seeds = [int(seed) for seed in seeds]
+        
+    scenario_filenames = []
+    for entry in data_folder.iterdir():
+        if not entry.is_file() or entry.suffix != '.scen':
+            continue
+        
+        name_parts = entry.stem.split('_')
+        seed = int(name_parts[-1].replace('.scen', ''))
+        if seed in seeds:
+            scenario_filenames.append(entry)
+            
+    return scenario_filenames
+
+def get_count_data_from_scen_files(scenario_filenames, cut_off_distances):
+    agent_count = 0
+    has_contact_count = defaultdict(int)
+    for scenario_filename in scenario_filenames:
+        scen_data =  BasicFileOutputManager.readScenarioDataFile(scenario_filename)
+        desc_filename = scenario_filename.parent.joinpath(scen_data.descFile)
+        conn_filename = scenario_filename.parent.joinpath(scen_data.connFile)
+        peds = BasicFileOutputManager.readDescriptionDataFile(desc_filename)
+        agent_count += len(peds)
+        ped_ids = list(peds.keys())
+        
+        conn_data = ConnectivityFileOutputManager.readConnectionsDataFile(conn_filename)
+        IDs_processed = set()
+        for ID_tuple, data_matrix in conn_data['connData'].items():
+            for cut_off_dist_str in cut_off_distances:
+                cut_off_dist = float(cut_off_dist_str)
+                if np.any(data_matrix[:,1] <= cut_off_dist):
+                    if ID_tuple[0] in IDs_processed and ID_tuple[1] in IDs_processed:
+                        continue
+                    if ID_tuple[0] not in IDs_processed and ID_tuple[1] not in IDs_processed:
+                        has_contact_count[cut_off_dist_str] += 2
+                    else:
+                        has_contact_count[cut_off_dist_str] += 1
+                    
+                    IDs_processed.add(ID_tuple[0])
+                    IDs_processed.add(ID_tuple[1])
+                    
+    return agent_count, has_contact_count
+            
