@@ -401,7 +401,7 @@ def create_base_case_paper_plot(fig_config, divider_config, plots_config, data):
 def create_and_save_box_paper_plot(fig_config, save_filename, divider_config, plots_config, data):
     fig = plt.figure(**fig_config)
     
-    axes = create_axes(divider_config, plots_config, fig)
+    axes, _ = create_axes(divider_config, plots_config, fig)
     
     for ax_nr, plot_config in enumerate(plots_config):
         ax = axes[ax_nr]
@@ -418,9 +418,10 @@ def create_and_save_box_paper_plot(fig_config, save_filename, divider_config, pl
         
     plt.savefig(save_filename, dpi=300)
             
-def create_axes(divider_config, plots_config, fig):
+def create_axes(divider_config, plots_config, fig, add_v_legend=False):
     hor_axes_locs = []
     ver_axes_locs = []
+    legend_ax = None
 
     for ax_nr, plot_config in enumerate(plots_config):
         if 'ax_loc' in plot_config:
@@ -435,7 +436,11 @@ def create_axes(divider_config, plots_config, fig):
     ver_axes_locs = max(ver_axes_locs) + 1
     
     hor_division = [Size.Fixed(divider_config['left'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_hor'])]*(hor_ax_count - 1) + [Size.Scaled(1), Size.Fixed(divider_config['right'])]
-    ver_division = [Size.Fixed(divider_config['bottom'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_ver'])]*(ver_axes_locs - 1) + [Size.Scaled(1), Size.Fixed(divider_config['top'])]  
+    ver_division = [Size.Fixed(divider_config['bottom'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_ver'])]*(ver_axes_locs - 1)
+    if add_v_legend:
+        ver_division += [Size.Scaled(1), Size.Fixed(divider_config['gap_ver']), Size.Fixed(divider_config['v_legend']), Size.Fixed(divider_config['top'])]
+    else:
+        ver_division += [Size.Scaled(1), Size.Fixed(divider_config['top'])]  
     divider = Divider(fig, (0,0,1,1), hor_division, ver_division, aspect=False)
 
     axes = []
@@ -454,7 +459,11 @@ def create_axes(divider_config, plots_config, fig):
         ax.set_axes_locator(divider.new_locator(nx=nx,ny=ny))
         axes.append(ax)
     
-    return axes
+    if add_v_legend:
+        legend_ax = fig.add_axes((0,0,1,1), 'legend_ax')
+        legend_ax.set_axes_locator(divider.new_locator(nx=1, nx1=1 + 2*len(axes) ,ny=3))
+    
+    return axes, legend_ax
         
 def cdf_plot(ax, data, plot_config):
     if 'infra_names' in plot_config:
@@ -532,6 +541,38 @@ def violin_plot(ax, data, plot_config, x):
 
     ax.boxplot(box_data, positions=x, zorder=3, **plot_config['box_plot_config'])    
     set_ax_config(ax, plot_config['main_ax_config'])
+    
+def multi_violin_plot(ax, data, plot_config, x):
+    handles = []
+    labels = []
+    
+    for ii, sub_group in enumerate(plot_config['sub_groups']):
+        infra_name = sub_group['infra_name']
+        data_name = sub_group['data_name']        
+        
+        box_data = []
+        for measure_name in plot_config['measure_names']:
+            box_data.append(data[infra_name][measure_name][data_name])
+            
+        for x_coord in x[ii]:
+            ax.axvline(x_coord, **plot_config['v_line_config'])
+        parts = ax.violinplot(box_data, positions=x[ii], **plot_config['violin_plot_config'])
+        
+        for pc in parts['bodies']:
+            pc.set_facecolor(sub_group['box_plot_config']['boxprops']['facecolor'])
+            if 'edge_color' in plot_config['violin_body_plot_config']:
+                pc.set_edgecolor(plot_config['violin_body_plot_config']['edge_color'])
+                
+            if 'alpha' in plot_config['violin_body_plot_config']:    
+                pc.set_alpha(plot_config['violin_body_plot_config']['alpha'])
+    
+        box_handles = ax.boxplot(box_data, positions=x[ii], zorder=3, **sub_group['box_plot_config'])    
+        handles.append(parts['bodies'][0])
+        labels.append(sub_group['label'])
+        
+    set_ax_config(ax, plot_config['main_ax_config'])
+    
+    return (handles, labels)  
     
 def multi_box_plot(ax, data, plot_config, x):
     handles = []
@@ -790,32 +831,18 @@ def create_compare_plot(fig_config, divider_config, plots_config, data):
     if fig_title is not None:
         fig.canvas.manager.set_window_title(fig_title)
     
-    hor_division = [Size.Fixed(divider_config['left']), Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), 
-                    Size.Scaled(1), Size.Fixed(divider_config['gap_hor']), Size.Scaled(1), Size.Fixed(divider_config['right'])]
-    ver_division = [Size.Fixed(divider_config['bottom']), Size.Scaled(1), Size.Fixed(divider_config['gap_ver']), Size.Fixed(divider_config['v_legend']), Size.Fixed(divider_config['top'])]  
-    divider = Divider(fig, (0,0,1,1), hor_division, ver_division, aspect=False)
-    
-    ax_count = 3
-    
-    legend_ax = fig.add_axes((0,0,1,1), f'legend_ax')
-    legend_ax.set_axes_locator(divider.new_locator(nx=1,ny=3,nx1=1+ax_count*2))
+    axes, legend_ax = create_axes(divider_config, plots_config, fig, add_v_legend=True)
     legend_ax.set_axis_off()
-    
-    main_axes = []
-    for ax_nr in range(ax_count):
-        main_ax = fig.add_axes((0,0,1,1), f'main_ax_{ax_nr}')
-        main_ax.set_axes_locator(divider.new_locator(nx=1+ax_nr*2,ny=1))
-        main_axes.append(main_ax)
     
     for ax_nr, plot_config in enumerate(plots_config):
         x, x_labels = get_x_coords(plot_config)
-        main_ax = main_axes[ax_nr]
+        main_ax = axes[ax_nr]
         plot_config['main_ax_config'].update({'x_ticks':x_labels})
         if plot_config['main_type'] == 'bar_border_line':
             bar_border_line_plot(main_ax, data, plot_config, x_labels)
         else:
-            legend_info = multi_box_plot(main_ax, data, plot_config, x)
-        
+            #legend_info = multi_box_plot(main_ax, data, plot_config, x)
+            legend_info = multi_violin_plot(main_ax, data, plot_config, x)
 
     legend_ax.legend(*legend_info, **plot_config['legend_config'])
            
