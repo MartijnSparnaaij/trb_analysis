@@ -997,13 +997,19 @@ def get_count_data_from_scen_files(scenario_filenames, cut_off_distances):
         desc_filename = scenario_filename.parent.joinpath(scen_data.descFile)
         conn_filename = scenario_filename.parent.joinpath(scen_data.connFile)
         peds = BasicFileOutputManager.readDescriptionDataFile(desc_filename)
-        agent_count += len(peds)
-        ped_ids = list(peds.keys())
         
         if conn_filename.suffix != '.npz':
             conn_filename = conn_filename.parent.joinpath(f'{conn_filename.name}.npz')
         
-        conn_data = ConnectivityFileOutputManager.readConnectionsDataFile(conn_filename)
+        try:
+            conn_data = ConnectivityFileOutputManager.readConnectionsDataFile(conn_filename)
+        except:
+            continue
+        
+        agent_count += len(peds)
+        ped_ids = list(peds.keys())
+        
+        
         IDs_processed = set()
         for ID_tuple, data_matrix in conn_data['connData'].items():
             for cut_off_dist_str in cut_off_distances:
