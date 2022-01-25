@@ -966,7 +966,7 @@ def get_count_data_from_config_file(config_filename):
 
     scenario_filenames = get_scenario_filenames(experiment_state_filename.parent.parent, experiment_state['successful_replications'])
 
-    agent_count, has_contact_count = get_count_data_from_scen_files(scenario_filenames, experiment_configexperiment_config['cut_off_distances'])
+    agent_count, has_contact_count = get_count_data_from_scen_files(scenario_filenames, experiment_config['cut_off_distances'])
 
     count_data = {'replication_count':experiment_state['successful_replication_count'],
                   'agent_count':agent_count, 'has_contact_count':has_contact_count}
@@ -999,6 +999,9 @@ def get_count_data_from_scen_files(scenario_filenames, cut_off_distances):
         peds = BasicFileOutputManager.readDescriptionDataFile(desc_filename)
         agent_count += len(peds)
         ped_ids = list(peds.keys())
+        
+        if conn_filename.suffix != '.npz':
+            conn_filename = conn_filename.parent.joinpath(f'{conn_filename.name}.npz')
         
         conn_data = ConnectivityFileOutputManager.readConnectionsDataFile(conn_filename)
         IDs_processed = set()
