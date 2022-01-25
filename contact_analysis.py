@@ -952,7 +952,7 @@ def get_agent_count_data(output_filename, config_filenames):
 
     
 def get_count_data_from_config_file(config_filename):
-    with open(experiment_config_filename, 'r') as f:
+    with open(config_filename, 'r') as f:
         experiment_config = json.load(f) 
 
     scen_name = config_filename.stem.replace('_scenario_experiment.config.json', '')
