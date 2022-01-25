@@ -966,7 +966,7 @@ def get_count_data_from_config_file(config_filename):
 
     scenario_filenames = get_scenario_filenames(experiment_state_filename.parent.parent, experiment_state['successful_replications'])
 
-    agent_count, has_contact_count = get_count_data_from_scen_files(scenario_filenames, experiment_configexperiment_config['cut_off_distances'])
+    agent_count, has_contact_count = get_count_data_from_scen_files(scenario_filenames, experiment_config['cut_off_distances'])
 
     count_data = {'replication_count':experiment_state['successful_replication_count'],
                   'agent_count':agent_count, 'has_contact_count':has_contact_count}
