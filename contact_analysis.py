@@ -978,7 +978,7 @@ def get_scenario_filenames(pd, seeds):
         seeds = [int(seed) for seed in seeds]
         
     scenario_filenames = []
-    for entry in data_folder.iterdir():
+    for entry in pd.iterdir():
         if not entry.is_file() or entry.suffix != '.scen':
             continue
         
