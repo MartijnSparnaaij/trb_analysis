@@ -941,11 +941,12 @@ def get_agent_count_data(output_filename, config_filenames):
     count_per_set = {}
     
     for config_filename in config_filenames:
-        print(f'Porcessing  {config_filename.stem}...')
+        print(f'Processing {config_filename.stem}...')
         count_data, infra_name, measure_name = get_count_data_from_config_file(config_filename)
         if infra_name not in count_per_set:
             count_per_set[infra_name] = {}
         
+        print(f'{infra_name} - {measure_name} - {count_data}')
         count_per_set[infra_name][measure_name] = count_data
         
     with open(output_filename, 'w') as f:
@@ -1011,22 +1012,17 @@ def get_count_data_from_scen_files(scenario_filenames, cut_off_distances):
         
         agent_count += len(peds)
         ped_ids = list(peds.keys())
-        
-        
-        IDs_processed = {cut_off_dist_str: set() for cut_off_dist_str in cut_off_distances}
+                
+        IDs_processed = defaultdict(set)
         for ID_tuple, data_matrix in conn_data['connData'].items():
             for cut_off_dist_str in cut_off_distances:
                 cut_off_dist = float(cut_off_dist_str)
                 if np.any(data_matrix[:,1] <= cut_off_dist):
-                    if ID_tuple[0] in IDs_processed[cut_off_dist_str] and ID_tuple[1] in IDs_processed[cut_off_dist_str]:
-                        continue
-                    if ID_tuple[0] not in IDs_processed and ID_tuple[1] not in IDs_processed:
-                        has_contact_count[cut_off_dist_str] += 2
-                    else:
-                        has_contact_count[cut_off_dist_str] += 1
-                    
                     IDs_processed[cut_off_dist_str].add(ID_tuple[0])
                     IDs_processed[cut_off_dist_str].add(ID_tuple[1])
+               
+        for cut_off_dist_str, peds in IDs_processed.items():
+            has_contact_count[cut_off_dist_str] += len(peds)
        
     print('')             
     return agent_count, has_contact_count
