@@ -993,7 +993,7 @@ def get_scenario_filenames(pd, seeds):
 def get_count_data_from_scen_files(scenario_filenames, cut_off_distances):
     agent_count = 0
     has_contact_count = defaultdict(int)
-    print(f'{["="]*len(scenario_filenames)}')
+    print(f'{"="*len(scenario_filenames)}')
     for scenario_filename in scenario_filenames:
         print('.', end='')
         scen_data =  BasicFileOutputManager.readScenarioDataFile(scenario_filename)
