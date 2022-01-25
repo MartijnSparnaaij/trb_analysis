@@ -960,13 +960,13 @@ def get_count_data_from_config_file(config_filename):
     infra_name = '_'.join(name_parts[:2])
     measure_name = '_'.join(name_parts[2:])
 
-    experiment_state_filename = Path(experiment_config['main_dir']).joinpath(experiment_state['experiment_state_filename'])
+    experiment_state_filename = Path(experiment_config['main_dir']).joinpath(experiment_config['experiment_state_filename'])
     with open(experiment_state_filename, 'r') as f:
         experiment_state = json.load(f) 
 
     scenario_filenames = get_scenario_filenames(experiment_state_filename.parent.parent, experiment_state['successful_replications'])
 
-    agent_count, has_contact_count = get_count_data_from_scen_files(scenario_filenames, experiment_state['cut_off_distances'])
+    agent_count, has_contact_count = get_count_data_from_scen_files(scenario_filenames, experiment_configexperiment_config['cut_off_distances'])
 
     count_data = {'replication_count':experiment_state['successful_replication_count'],
                   'agent_count':agent_count, 'has_contact_count':has_contact_count}
