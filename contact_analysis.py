@@ -1038,8 +1038,8 @@ def get_key(t_set):
 def get_agent_contact_data_from_scen_file(scenario_filenames, contact_data_config):
     contact_data_base = {'contacts':{}, 'combs':{}}
     for contact_t_set in contact_data_config['contacts']:
-        contact_data_base['contacts'][contact_t_set.key] = {'cc_count_per_agent':defaultdict(int), 'cc_count_both':0,
-                                                            'cc_count_nc':0, 'cc_count_c':0}
+        contact_data_base['contacts'][contact_t_set.key] = {'cc_count_per_agent':[], 
+                                                            'cc_count_both':0, 'cc_count_nc':0, 'cc_count_c':0}
             
     contact_data = {'staff_count':0, 'customer_count':0}
     for interaction_type in INTERACTION_TYPES:
@@ -1068,6 +1068,10 @@ def process_contacts(peds, conn_data, contact_data, contact_data_config, time_st
 
     id_2_group_id = conn_data['ID2groupID']
     
+    for t_set in contact_data_config['contacts']:
+        for interaction_type in INTERACTION_TYPES:
+            contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent_tmp'] = defaultdict(int)
+    
     for id_tuple, proximity_data in conn_data['connData'].items():
         interaction_type, group_type_0, group_type_1 = get_interaction_type(id_tuple, id_2_group_id)
         for t_set in contact_data_config['contacts']:
@@ -1082,17 +1086,21 @@ def process_contacts(peds, conn_data, contact_data, contact_data_config, time_st
             if contact_type in CLOSE_CONTACT_SET:
                 if interaction_type == STAFF_CUSTOMER:
                     if group_type_0 == CUSTOMER_TYPE:
-                        contact_data[CUSTOMER_STAFF]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[0]] += 1
+                        contact_data[CUSTOMER_STAFF]['contacts'][t_set.key]['cc_count_per_agent_tmp'][id_tuple[0]] += 1
                     else:
-                        contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[0]] += 1
+                        contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent_tmp'][id_tuple[0]] += 1
                     if group_type_1 == CUSTOMER_TYPE:
-                        contact_data[CUSTOMER_STAFF]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[1]] += 1
+                        contact_data[CUSTOMER_STAFF]['contacts'][t_set.key]['cc_count_per_agent_tmp'][id_tuple[1]] += 1
                     else:
-                        contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[1]] += 1
+                        contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent_tmp'][id_tuple[1]] += 1
                 else:
-                    contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[0]] += 1
-                    contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[1]] += 1
-            
+                    contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent_tmp'][id_tuple[0]] += 1
+                    contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent_tmp'][id_tuple[1]] += 1
+    
+    for t_set in contact_data_config['contacts']:
+        for interaction_type in INTERACTION_TYPES:
+            contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent'] += list(contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent_tmp'].values())
+            contact_data[interaction_type]['contacts'][t_set.key].pop('cc_count_per_agent_tmp')
         # for comb_info in contact_data_config['combs']:
         #     dist_threshold = comb_info[1]
         #     time_within_dist = get_time_within_dist(proximity_data, dist_threshold, time_step)
