@@ -1,5 +1,5 @@
-from nomad.NOMAD.activity_scheduler import RestaurantScheduler
-from nomad.NOMAD.input_manager import RestaurantSchedulerInput
+#from nomad.NOMAD.activity_scheduler import RestaurantScheduler
+#from nomad.NOMAD.input_manager import RestaurantSchedulerInput
 import numpy as np
 
 def runTest(schedulerInput, destinations, pedParameterSets, 
@@ -42,3 +42,35 @@ def printSeatCountPerNeighborhood(neighborhoods):
 def printTable2Neighborhood(table2neighborhood):
     for tableID, neighborhood in table2neighborhood.items():
         print(f'{tableID}: {neighborhood.ID}')
+
+
+def test_get_agent_contact_data():
+    from pathlib import Path
+    import sys
+    
+    nomad_path = r"C:\Users\martijnsparnaa\Eclipse_Python_NOMAD\nomad_trb_paper"
+    sys.path.insert(1, nomad_path)
+    
+    analysis_path = r"C:\Users\martijnsparnaa\Jupyterlab_notebooks\trb_analysis"
+    sys.path.insert(1, analysis_path)
+    
+    
+    output_filename = Path(r'C:\Users\martijnsparnaa\surfdrive\PhD\Activity scheduler\Simulations\test\contact_data.npz')
+    config_filenames = [Path(r'C:\Users\martijnsparnaa\surfdrive\PhD\Activity scheduler\Simulations\2021_12\transfer\long_restaurant_nn_nts_bvd\summarized\long_restaurant_nn_nts_bvd_scenario_experiment_recreated.config.json')]
+    
+    contact_data_config = {
+        'contacts': [
+            ((1.0, 1), (1.5, 15, True)),
+            ((1.0, 1), (1.5, 10, False)),
+            ((1.0, 1), (2.0, 15, False)),
+            ((None, None), (1.5, 15, False))            
+        ],
+        'combs': (2, 3)
+        }
+    
+    from contact_analysis import get_agent_contact_data
+    get_agent_contact_data(output_filename, config_filenames, contact_data_config)
+
+
+if __name__ == '__main__':
+    test_get_agent_contact_data()

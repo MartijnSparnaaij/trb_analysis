@@ -3,7 +3,8 @@ Created on 13 Jul 2021
 
 @author: Martijn Sparnaaij
 '''
-from _collections import defaultdict, deque
+from _collections import defaultdict, deque 
+from collections import namedtuple
 from copy import deepcopy
 import json
 import logging
@@ -42,6 +43,8 @@ CDF_TYPES = (WEIGHT_OVER_CONTACTS, WEIGHT_OVER_AGENTS, CONTACTS_OVER_AGENTS)
 CUT_OFF_DISTANCES = 'cut_off_distances' 
 CUT_OFF_DISTANCES_VALUES = (1.0, 1.5, 2.0) 
 
+STAFF_TYPE = 'staff'
+CUSTOMER_TYPE = 'customer'
 STAFF_CUSTOMER = 'staff_customer'
 CUSTOMER_CUSTOMER = 'customer_customer'
 CUSTOMER_STAFF = 'customer_staff'
@@ -76,6 +79,12 @@ EXPERIMENT_STATE_FILE_ATTRS = (
     'successful_replications',
     'failed_replications',      
     )
+
+CLOSE_CONTACT_NON_CUM = 0
+CLOSE_CONTACT_CUM = 1
+CLOSE_CONTACT_BOTH = 2
+NON_CLOSE_CONTACT = 3
+CLOSE_CONTACT_SET = (CLOSE_CONTACT_NON_CUM, CLOSE_CONTACT_CUM, CLOSE_CONTACT_BOTH)
 
 #LOGGER_NAME = 'contact_experiment'
    
@@ -937,6 +946,7 @@ def continue_experiment(experiment_config_filename):
 
 
 # ================================================================================================
+
 def get_agent_count_data(output_filename, config_filenames):
     count_per_set = {}
     
@@ -954,18 +964,8 @@ def get_agent_count_data(output_filename, config_filenames):
 
     
 def get_count_data_from_config_file(config_filename):
-    with open(config_filename, 'r') as f:
-        experiment_config = json.load(f) 
-
-    scen_name = config_filename.stem.replace('_scenario_experiment.config.json', '')
-    name_parts = scen_name.split('_')
-    infra_name = '_'.join(name_parts[:2])
-    measure_name = '_'.join(name_parts[2:])
-
-    experiment_state_filename = Path(experiment_config['main_dir']).joinpath(experiment_config['experiment_state_filename'])
-    with open(experiment_state_filename, 'r') as f:
-        experiment_state = json.load(f) 
-
+    experiment_config, infra_name, measure_name = get_config_file_content(config_filename)
+    experiment_state, experiment_state_filename = get_experiment_state(experiment_config)
     scenario_filenames = get_scenario_filenames(experiment_state_filename.parent.parent, experiment_state['successful_replications'])
 
     agent_count, has_contact_count = get_count_data_from_scen_files(scenario_filenames, experiment_config['cut_off_distances'])
@@ -975,21 +975,7 @@ def get_count_data_from_config_file(config_filename):
 
     return count_data, infra_name, measure_name
 
-def get_scenario_filenames(pd, seeds):
-    if isinstance(seeds[0], str):
-        seeds = [int(seed) for seed in seeds]
-        
-    scenario_filenames = []
-    for entry in pd.iterdir():
-        if not entry.is_file() or entry.suffix != '.scen':
-            continue
-        
-        name_parts = entry.stem.split('_')
-        seed = int(name_parts[-1].replace('.scen', ''))
-        if seed in seeds:
-            scenario_filenames.append(entry)
-            
-    return scenario_filenames
+
 
 def get_count_data_from_scen_files(scenario_filenames, cut_off_distances):
     agent_count = 0
@@ -997,16 +983,8 @@ def get_count_data_from_scen_files(scenario_filenames, cut_off_distances):
     print(f'{"="*len(scenario_filenames)}')
     for scenario_filename in scenario_filenames:
         print('.', end='')
-        scen_data =  BasicFileOutputManager.readScenarioDataFile(scenario_filename)
-        desc_filename = scenario_filename.parent.joinpath(scen_data.descFile)
-        conn_filename = scenario_filename.parent.joinpath(scen_data.connFile)
-        peds = BasicFileOutputManager.readDescriptionDataFile(desc_filename)
-        
-        if conn_filename.suffix != '.npz':
-            conn_filename = conn_filename.parent.joinpath(f'{conn_filename.name}.npz')
-        
         try:
-            conn_data = ConnectivityFileOutputManager.readConnectionsDataFile(conn_filename)
+            peds, conn_data, _ = get_ped_and_conn_data(scenario_filename)
         except:
             continue
         
@@ -1027,3 +1005,218 @@ def get_count_data_from_scen_files(scenario_filenames, cut_off_distances):
     print('')             
     return agent_count, has_contact_count
             
+# ================================================================================================
+
+def get_agent_contact_data(output_filename, config_filenames, contact_data_config):
+    process_contact_data_config(contact_data_config)
+    contact_data_all = defaultdict(dict)
+    for config_filename in config_filenames:
+        print(f'Processing {config_filename.stem}...')
+        experiment_config, infra_name, measure_name = get_config_file_content(config_filename)
+        experiment_state, experiment_state_filename = get_experiment_state(experiment_config)
+        scenario_filenames = get_scenario_filenames(experiment_state_filename.parent.parent, experiment_state['successful_replications'])
+        contact_data = get_agent_contact_data_from_scen_file(scenario_filenames, contact_data_config)
+        contact_data_all[infra_name][measure_name] = contact_data
+                        
+    np.savez(output_filename, **contact_data_all)
+        
+def process_contact_data_config(contact_data_config):
+    ThresholdSet = namedtuple('ThresholdSet', ['non_cum', 'cum', 'key'])
+    Thresholds = namedtuple('Thresholds', ['dist', 'time', 'use_in_combs'])
+    contacts = []
+    for t_set in contact_data_config['contacts']:
+        contacts.append(ThresholdSet(Thresholds(*t_set[0], False), Thresholds(*t_set[1]), get_key(t_set)))
+    
+    contact_data_config['contacts'] = contacts
+   
+def get_key(t_set):
+    if t_set[0][0] is None:
+        return f'nc_None_c_dist={t_set[1][0]:.1f}_time={t_set[1][1]:.1f}'
+    else:
+        return f'nc_dist={t_set[0][0]:.1f}_time={t_set[0][1]:.1f}_c_dist={t_set[1][0]:.1f}_time={t_set[1][1]:.1f}'
+        
+def get_agent_contact_data_from_scen_file(scenario_filenames, contact_data_config):
+    contact_data_base = {'contacts':{}, 'combs':{}}
+    for contact_t_set in contact_data_config['contacts']:
+        contact_data_base['contacts'][contact_t_set.key] = {'cc_count_per_agent':defaultdict(int), 'cc_count_both':0,
+                                                            'cc_count_nc':0, 'cc_count_c':0}
+            
+    contact_data = {'staff_count':0, 'customer_count':0}
+    for interaction_type in INTERACTION_TYPES:
+        contact_data[interaction_type] = deepcopy(contact_data_base)
+    
+    file_count = len(scenario_filenames)
+    for ii, scenario_filename in enumerate(scenario_filenames):
+        print(f'Processing {ii+1} of {file_count}')
+        process_scen_file_contact_data(scenario_filename, contact_data, contact_data_config)
+                
+    return contact_data
+        
+def process_scen_file_contact_data(scenario_filename, contact_data, contact_data_config):
+    try:
+        peds, conn_data, time_step = get_ped_and_conn_data(scenario_filename)
+    except:
+        return
+    
+    process_contacts(peds, conn_data, contact_data, contact_data_config, time_step)    
+
+def process_contacts(peds, conn_data, contact_data, contact_data_config, time_step):
+    group_ids = [ped.groupID for ped in peds.values()]
+    staff_count = group_ids.count('staff')
+    contact_data['customer_count'] += len(peds) - staff_count
+    contact_data['staff_count'] += staff_count
+
+    id_2_group_id = conn_data['ID2groupID']
+    
+    for id_tuple, proximity_data in conn_data['connData'].items():
+        interaction_type, group_type_0, group_type_1 = get_interaction_type(id_tuple, id_2_group_id)
+        for t_set in contact_data_config['contacts']:
+            contact_type, _ = is_close_contact(proximity_data, time_step, t_set.non_cum, t_set.cum, interaction_type)
+            if contact_type == CLOSE_CONTACT_BOTH:
+                contact_data[interaction_type]['contacts'][t_set.key]['cc_count_both'] += 1
+            elif contact_type == CLOSE_CONTACT_NON_CUM:
+                contact_data[interaction_type]['contacts'][t_set.key]['cc_count_nc'] += 1
+            elif contact_type == CLOSE_CONTACT_CUM:
+                contact_data[interaction_type]['contacts'][t_set.key]['cc_count_c'] += 1
+                
+            if contact_type in CLOSE_CONTACT_SET:
+                if interaction_type == STAFF_CUSTOMER:
+                    if group_type_0 == CUSTOMER_TYPE:
+                        contact_data[CUSTOMER_STAFF]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[0]] += 1
+                    else:
+                        contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[0]] += 1
+                    if group_type_1 == CUSTOMER_TYPE:
+                        contact_data[CUSTOMER_STAFF]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[1]] += 1
+                    else:
+                        contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[1]] += 1
+                else:
+                    contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[0]] += 1
+                    contact_data[interaction_type]['contacts'][t_set.key]['cc_count_per_agent'][id_tuple[1]] += 1
+            
+        # for comb_info in contact_data_config['combs']:
+        #     dist_threshold = comb_info[1]
+        #     time_within_dist = get_time_within_dist(proximity_data, dist_threshold, time_step)
+        #     if time_within_dist > 0:
+        #         if group_type_1 not in combs_data[comb_info][id_tuple[0]]:
+        #             combs_data[comb_info][id_tuple[0]][group_type_1] = []
+        #             combs_data[comb_info][id_tuple[0]]['group_type'] = group_type_0
+        #         if group_type_0 not in combs_data[comb_info][id_tuple[1]]:
+        #             combs_data[comb_info][id_tuple[1]][group_type_0] = []
+        #             combs_data[comb_info][id_tuple[1]]['group_type'] = group_type_1
+        #
+        #         combs_data[comb_info][id_tuple[0]][group_type_1].append(time_within_dist)
+        #         combs_data[comb_info][id_tuple[1]][group_type_0].append(time_within_dist)
+        
+    #process_combs(contact_data, contact_data_config, combs_data, id_2_group_id)
+            
+def process_combs(contact_data, contact_data_config, combs_data, id_2_group_id):
+    for comb_info in contact_data_config['combs']:
+        comb_size, dist_threshold, time_threshold = comb_info
+        for agent_id, agent_combs_data in combs_data[comb_info].items():
+            agent_group_type = agent_combs_data['group_type']
+            for group_type, group_data in agent_combs_data.items():
+                if group_type == 'group_type':
+                    continue
+                combs = np.array(list(it.combinations(group_data, comb_size)))
+                if agent_group_type == CUSTOMER_TYPE and group_type == CUSTOMER_TYPE:
+                    interaction_type = CUSTOMER_CUSTOMER
+                elif agent_group_type == STAFF_TYPE:
+                    interaction_type = STAFF_CUSTOMER
+                else:
+                    interaction_type = CUSTOMER_STAFF
+                
+                contact_data[interaction_type]['combs'][comb_info]['combs_count'] += len(combs)
+                contact_data[interaction_type]['combs'][comb_info]['count'] += np.sum(np.sum(combs, axis=1) >= time_threshold)
+            
+def is_close_contact(proximity_data, time_step, non_cum_thresholds, cum_thresholds, interaction_type):
+    has_non_cum_close_contact = calc_if_has_non_cum_close_contact(proximity_data, time_step, non_cum_thresholds, interaction_type)
+    cum_contact_time = time_step/60*np.sum(proximity_data[:,1] <= cum_thresholds.dist)
+    if has_non_cum_close_contact and cum_contact_time > cum_thresholds.time:
+        return CLOSE_CONTACT_BOTH, cum_contact_time
+    if has_non_cum_close_contact:
+        return CLOSE_CONTACT_NON_CUM, cum_contact_time
+    if cum_contact_time > cum_thresholds.time:
+        return CLOSE_CONTACT_CUM, cum_contact_time
+    
+    return NON_CLOSE_CONTACT, cum_contact_time
+    
+def calc_if_has_non_cum_close_contact(proximity_data, time_step, non_cum_thresholds, interaction_type):
+    if non_cum_thresholds.dist is None and non_cum_thresholds.time is None: 
+        return False
+    
+    time_steps = proximity_data[proximity_data[:,1] <= non_cum_thresholds.dist,0]
+    split_indices = np.argwhere((np.abs(time_steps[1:]-time_steps[:-1] - time_step) < 1e-10) == False).flatten()
+    time_periods = []
+    ind_count = len(split_indices)
+    for ii, ind in enumerate(split_indices):
+        if ii == 0:
+            time_periods.append(time_step/60*(ind+1))
+        
+        if ind_count > 1 and ind != split_indices[-1]:
+            time_periods.append(time_step/60*(split_indices[ii+1] - ind))
+        
+        if ind == split_indices[-1]:   
+            time_periods.append(time_step/60*(len(time_steps) - ind - 1))
+    
+    has_non_cum_close_contact = np.any(np.array(time_periods) > non_cum_thresholds.time)
+    
+    return has_non_cum_close_contact
+            
+# ================================================================================================
+
+def get_scenario_filenames(pd, seeds):
+    if isinstance(seeds[0], str):
+        seeds = [int(seed) for seed in seeds]
+        
+    scenario_filenames = []
+    for entry in pd.iterdir():
+        if not entry.is_file() or entry.suffix != '.scen':
+            continue
+        
+        name_parts = entry.stem.split('_')
+        seed = int(name_parts[-1].replace('.scen', ''))
+        if seed in seeds:
+            scenario_filenames.append(entry)
+            
+    return scenario_filenames
+
+def get_config_file_content(config_filename):
+    with open(config_filename, 'r') as f:
+        experiment_config = json.load(f) 
+
+    scen_name = config_filename.stem.replace('_scenario_experiment.config.json', '')
+    name_parts = scen_name.split('_')
+    infra_name = '_'.join(name_parts[:2])
+    measure_name = '_'.join(name_parts[2:])
+
+    return experiment_config, infra_name, measure_name
+
+def get_experiment_state(experiment_config):
+    experiment_state_filename = Path(experiment_config['main_dir']).joinpath(experiment_config['experiment_state_filename'])
+    with open(experiment_state_filename, 'r') as f:
+        experiment_state = json.load(f) 
+        
+    return experiment_state, experiment_state_filename
+
+def get_ped_and_conn_data(scenario_filename):
+    scen_data =  BasicFileOutputManager.readScenarioDataFile(scenario_filename)
+    desc_filename = scenario_filename.parent.joinpath(scen_data.descFile)
+    conn_filename = scenario_filename.parent.joinpath(scen_data.connFile)
+    peds = BasicFileOutputManager.readDescriptionDataFile(desc_filename)
+    
+    if conn_filename.suffix != '.npz':
+        conn_filename = conn_filename.parent.joinpath(f'{conn_filename.name}.npz')
+    
+    conn_data = ConnectivityFileOutputManager.readConnectionsDataFile(conn_filename)
+    
+    return peds, conn_data, scen_data.timeStep
+
+def get_interaction_type(id_tuple, id_2_group_id):
+    group_type_0 = STAFF_TYPE if id_2_group_id[id_tuple[0]] == STAFF_TYPE else CUSTOMER_TYPE
+    group_type_1 = STAFF_TYPE if id_2_group_id[id_tuple[1]] == STAFF_TYPE else CUSTOMER_TYPE
+    
+    if group_type_0  == STAFF_TYPE or group_type_1 == STAFF_TYPE:
+        return STAFF_CUSTOMER, group_type_0, group_type_1
+    else:
+        return CUSTOMER_CUSTOMER, group_type_0, group_type_1
+

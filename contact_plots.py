@@ -4,22 +4,24 @@ Created on 13 Jul 2021
 @author: Martijn Sparnaaij
 '''
 
+from _collections import defaultdict
 from copy import deepcopy
 import csv
 import json
-from math import sqrt
-from scipy import stats
+from math import sqrt, inf
 
+from cliffs_delta import cliffs_delta
 from matplotlib import cm
 import matplotlib
 from mpl_toolkits.axes_grid1.axes_divider import Divider
+from scipy import stats
 import xlsxwriter
 
-from cliffs_delta import cliffs_delta
 import matplotlib.pyplot as plt
 import mpl_toolkits.axes_grid1.axes_size as Size
 import numpy as np
 import pandas as pd
+
 
 def get_data_from_files(data_folder, convert_2_minutes=False):
     combined_data_files = get_combined_data_files_from_dir(data_folder)
@@ -397,11 +399,75 @@ def create_base_case_paper_plot(fig_config, divider_config, plots_config, data):
            
     plt.draw()
 
+def get_dist_time_prob_data(interaction_type, infra_name, measure_names, dist_time_combs, base_comb, parts_2_data_name, data):
+    dist_time_prob_data = {'prob':{}, 'count':{}, 'total_count':{}, 'overlap':{}}
+    row_count = len(measure_names)
+    base_data_name = parts_2_data_name[base_comb[0]][interaction_type]['weight_over_contacts']
+    
+    base_data_points = {measure_name: data[infra_name][measure_name][base_data_name] > base_comb[1] for measure_name in measure_names}
+    
+    for dist, time in dist_time_combs:        
+        data_name = parts_2_data_name[dist][interaction_type]['weight_over_contacts']
+        
+        count = np.zeros((row_count, 1), dtype=int)
+        total_count = np.zeros((row_count, 1), dtype=int)
+        overlap = np.zeros((row_count, 1), dtype=float)
+        for ii, measure_name in enumerate(measure_names):
+            data_points = data[infra_name][measure_name][data_name]
+            count[ii] = np.sum(data_points > time)
+            total_count[ii] = len(data_points)
+            if (dist, time) != base_comb:
+                overlap[ii] = np.sum(data_points > time & base_data_points[measure_name])/len(data_points)
+
+        dist_time_prob_data['prob'][(dist, time)] = count/total_count
+        dist_time_prob_data['count'][(dist, time)] = count
+        dist_time_prob_data['total_count'][(dist, time)]  = total_count
+        dist_time_prob_data['overlap'][(dist, time)]  = overlap
+
+    return dist_time_prob_data
+
+
+def create_and_save_percentile_paper_plot(fig_config, save_filename, divider_config, plots_config):
+    fig_title = None
+    if 'title' in fig_config:
+        fig_title = fig_config['title']
+        fig_config.pop('title')
+    fig = plt.figure(**fig_config)
+    if fig_title is not None:
+        fig.canvas.manager.set_window_title(fig_title)
+    
+    axes, _, _, ver_axes_locs = create_axes(divider_config, plots_config, fig)
+    
+    y_lim_sets = defaultdict(list)
+    
+    for ax_nr, plot_config in enumerate(plots_config):
+        ax = axes[ax_nr]
+        x = list(range(1, len(plot_config['measure_names']) + 1))
+        line_plot(ax, plot_config, x)        
+        
+        ver_loc = ver_axes_locs[ax_nr]
+        y_lim_sets[ver_loc].append(ax) 
+        
+    for y_lim_set in y_lim_sets.values():
+        min_y = inf
+        max_y = -inf
+        for ax in y_lim_set:
+            y_lim_ax = ax.get_ylim()
+            if min_y > y_lim_ax[0]:
+                min_y = y_lim_ax[0]
+            if max_y < y_lim_ax[1]:
+                max_y = y_lim_ax[1]
+            
+        for ax in y_lim_set:
+            ax.set_ylim((min_y, max_y))
+                    
+    plt.savefig(save_filename, dpi=300)
+        
         
 def create_and_save_box_paper_plot(fig_config, save_filename, divider_config, plots_config, data):
     fig = plt.figure(**fig_config)
     
-    axes, _ = create_axes(divider_config, plots_config, fig)
+    axes, _, _, _ = create_axes(divider_config, plots_config, fig)
     
     for ax_nr, plot_config in enumerate(plots_config):
         ax = axes[ax_nr]
@@ -419,24 +485,10 @@ def create_and_save_box_paper_plot(fig_config, save_filename, divider_config, pl
     plt.savefig(save_filename, dpi=300)
             
 def create_axes(divider_config, plots_config, fig, add_v_legend=False):
-    hor_axes_locs = []
-    ver_axes_locs = []
-    legend_ax = None
+    hor_axes_locs, ver_axes_locs = get_ax_locs(divider_config, plots_config)
 
-    for ax_nr, plot_config in enumerate(plots_config):
-        if 'ax_loc' in plot_config:
-            hor_axes_locs.append(plot_config['ax_loc'][0])
-            ver_axes_locs.append(plot_config['ax_loc'][1])
-        else:
-           hor_axes_locs.append(ax_nr)
-           if 0 not in ver_axes_locs:
-               ver_axes_locs.append(0)
-    
-    hor_ax_count = max(hor_axes_locs) + 1
-    ver_axes_locs = max(ver_axes_locs) + 1
-    
-    hor_division = [Size.Fixed(divider_config['left'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_hor'])]*(hor_ax_count - 1) + [Size.Scaled(1), Size.Fixed(divider_config['right'])]
-    ver_division = [Size.Fixed(divider_config['bottom'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_ver'])]*(ver_axes_locs - 1)
+    hor_division = [Size.Fixed(divider_config['left'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_hor'])]*max(hor_axes_locs) + [Size.Scaled(1), Size.Fixed(divider_config['right'])]
+    ver_division = [Size.Fixed(divider_config['bottom'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_ver'])]*max(ver_axes_locs)
     if add_v_legend:
         ver_division += [Size.Scaled(1), Size.Fixed(divider_config['gap_ver']), Size.Fixed(divider_config['v_legend']), Size.Fixed(divider_config['top'])]
     else:
@@ -449,8 +501,8 @@ def create_axes(divider_config, plots_config, fig, add_v_legend=False):
             hor_axes_nr = plot_config['ax_loc'][0]
             ver_axes_nr = plot_config['ax_loc'][1]
         else:
-            hor_axes_nr = ax_nr
-            ver_axes_nr = 0
+            hor_axes_nr = hor_axes_locs[ax_nr]
+            ver_axes_nr = ver_axes_locs[ax_nr]
 
         nx = 1 + 2*hor_axes_nr
         ny = 1 + 2*ver_axes_nr
@@ -459,11 +511,28 @@ def create_axes(divider_config, plots_config, fig, add_v_legend=False):
         ax.set_axes_locator(divider.new_locator(nx=nx,ny=ny))
         axes.append(ax)
     
+    legend_ax = None
     if add_v_legend:
         legend_ax = fig.add_axes((0,0,1,1), 'legend_ax')
         legend_ax.set_axes_locator(divider.new_locator(nx=1, nx1=1 + 2*len(axes) ,ny=3))
     
-    return axes, legend_ax
+    return axes, legend_ax, hor_axes_locs, ver_axes_locs
+
+def get_ax_locs(divider_config, plots_config):
+    if 'hor_axes_locs' in divider_config:
+        return divider_config['hor_axes_locs'], divider_config['ver_axes_locs'] 
+    
+    hor_axes_locs = []
+    ver_axes_locs = []
+    for ax_nr, plot_config in enumerate(plots_config):
+        if 'ax_loc' in plot_config:
+            hor_axes_locs.append(plot_config['ax_loc'][0])
+            ver_axes_locs.append(plot_config['ax_loc'][1])
+        else:
+           hor_axes_locs.append(ax_nr)
+           ver_axes_locs.append(0)
+    
+    return hor_axes_locs, ver_axes_locs
         
 def cdf_plot(ax, data, plot_config):
     if 'infra_names' in plot_config:
@@ -506,6 +575,19 @@ def box_plot(ax, data, plot_config, x):
         ax.axvline(x_coord, **plot_config['v_line_config'])
 
     ax.boxplot(box_data, positions=x, zorder=3, **plot_config['box_plot_config'])    
+    set_ax_config(ax, plot_config['main_ax_config'])
+
+def line_plot(ax, plot_config, x):
+    for line in plot_config['lines']:
+        ax.plot(x, line['y'], **line['line_config'])    
+    
+    for x_coord in x:
+        ax.axvline(x_coord, **plot_config['v_line_config'])
+ 
+    if plot_config['use_legend']:
+        ax.legend(**plot_config['legend_config'])
+    
+    ax.set_xticks(x)       
     set_ax_config(ax, plot_config['main_ax_config'])
  
 def violin_plot(ax, data, plot_config, x):
@@ -798,8 +880,17 @@ def set_ax_config(ax, ax_config):
         else:
             ax.set_xticklabels(ax_config['x_tick_labels'])
     elif 'x_tick_labels_config' in ax_config:
-        print(ax.get_xticklabels())
-        ax.set_xticklabels(ax.get_xticklabels(), **ax_config['x_tick_labels_config'])
+        ax.tick_params(axis='x', **ax_config['x_tick_labels_config'])
+
+    if 'y_tick_labels' in ax_config:
+        if len(ax_config['y_tick_labels']) == 0:
+            ax.set_yticklabels(ax_config['y_tick_labels'])
+        elif 'y_tick_labels_config' in ax_config:
+            ax.set_yticklabels(ax_config['y_tick_labels'], **ax_config['y_tick_labels_config'])
+        else:
+            ax.set_yticklabels(ax_config['y_tick_labels'])
+    elif 'y_tick_labels_config' in ax_config:
+        ax.tick_params(axis='y', **ax_config['y_tick_labels_config'])
 
     if 'x_lim' in ax_config:
         ax.set_xlim(ax_config['x_lim'])
@@ -831,7 +922,7 @@ def create_compare_plot(fig_config, divider_config, plots_config, data):
     if fig_title is not None:
         fig.canvas.manager.set_window_title(fig_title)
     
-    axes, legend_ax = create_axes(divider_config, plots_config, fig, add_v_legend=True)
+    axes, legend_ax, _, _ = create_axes(divider_config, plots_config, fig, add_v_legend=True)
     legend_ax.set_axis_off()
     
     for ax_nr, plot_config in enumerate(plots_config):
