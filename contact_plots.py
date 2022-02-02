@@ -7,6 +7,7 @@ Created on 13 Jul 2021
 from _collections import defaultdict
 from copy import deepcopy
 import csv
+from functools import lru_cache
 import json
 from math import sqrt, inf
 
@@ -22,6 +23,229 @@ import mpl_toolkits.axes_grid1.axes_size as Size
 import numpy as np
 import pandas as pd
 
+#===============================================================================================================
+def create_and_save_rel_close_contact_plot(fig_config, divider_config, plots_config, data_filename, save_filename):
+    plot_fcn = close_contact_bar_plot
+    create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, add_v_legend=True)
+
+
+def create_and_save_abs_close_contact_plot(fig_config, divider_config, plots_config, data_filename, save_filename, contact_count_data):
+    plot_fcn = close_contact_abs_count_plot
+    create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, contact_count_data, add_v_legend=True)
+
+def create_and_save_abs_close_contact_bar_plot(fig_config, divider_config, plots_config, data_filename, save_filename, contact_count_data):
+    plot_fcn = close_contact_abs_count_bar_plot
+    create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, contact_count_data, add_v_legend=True)
+
+def create_and_save_change_contact_plot(fig_config, divider_config, plots_config, data_filename, save_filename):
+    plot_fcn = None
+    create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename)
+
+
+def create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, *args, add_v_legend=False):
+    fig = create_fig(fig_config)
+    axes, legend_ax, _, _ = create_axes(divider_config, plots_config, fig, add_v_legend)
+    data_in_file = load_data_from_file(data_filename)
+    plot_fcn(axes, legend_ax, data_in_file, plots_config, *args)    
+    plt.savefig(save_filename, dpi=300)
+    
+    
+def close_contact_bar_plot(axes, legend_ax, data_in_file, plots_config):
+    categories = (
+        ('cc_count_both', 'Both'),
+        ('cc_count_nc', '1 minute'),
+        ('cc_count_c', '15 minutes'),
+        )
+    
+    legend_ax.set_axis_off()
+    
+    legend_labels = []
+    legend_handles = []
+    for ax_nr, plot_config in enumerate(plots_config):
+        ax = axes[ax_nr]
+        infra_data = data_in_file[plot_config['infra_name']].item()
+        x = list(range(len(plot_config['measure_names'])))
+        
+        bottom = np.zeros(len(x))
+        for bar_nr, name_label in enumerate(categories):
+            name, label = name_label
+            bar_height = []
+            for measure_name in plot_config['measure_names']:
+                agent_count = get_agent_count(infra_data[measure_name], plot_config['interaction_type'])
+                contact_count = get_contact_count(infra_data[measure_name], plot_config['interaction_type'], plot_config['t_label'], name)
+                bar_height.append(contact_count/agent_count)
+                
+            bar_handles = ax.bar(x, bar_height, label=f'{label}', color=plot_config['bar_color_order'][bar_nr], bottom=bottom, zorder=3, **plot_config['bar_plot_config'])
+            if label not in legend_labels:
+                legend_labels.append(label)
+                legend_handles.append(bar_handles[0])
+            
+            bottom = bottom + np.array(bar_height)
+        
+        for x_coord in x:
+            ax.axvline(x_coord, **plot_config['v_line_config'])
+        
+        plot_config['main_ax_config']['x_ticks'] = x
+             
+    for ax_nr, plot_config in enumerate(plots_config): 
+        set_ax_config(axes[ax_nr], plot_config['main_ax_config'])
+        
+    legend_ax.legend(legend_handles, legend_labels, **plot_config['legend_config'])
+  
+def close_contact_abs_count_plot(axes, legend_ax, data_in_file, plots_config, contact_count_data):
+    handles, labels = close_contact_box_violin_plot(axes[0], plots_config[0], get_close_contact_count_per_agent, data_in_file, plots_config[0]['t_label'])
+    
+    close_contact_box_violin_plot(axes[1], plots_config[1], get_contact_count_per_agent, contact_count_data, plots_config[1]['data_name'])
+    
+    legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
+
+def close_contact_abs_count_bar_plot(axes, legend_ax, data_in_file, plots_config, contact_count_data):
+    handles, labels = close_contact_bar_plot(axes[0], plots_config[0], get_bar_height_close_contact, data_in_file, plots_config[0]['t_label'])
+    
+    close_contact_bar_plot(axes[1], plots_config[1], get_bar_height_contact, contact_count_data, plots_config[1]['data_name'])
+    
+    legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
+    
+def close_contact_bar_plot(ax, plot_config, data_get_fcn, data, *args):
+    x, x_label_pos = calc_x_coords(plot_config)
+    
+    handles = []
+    labels = []
+    
+    for measure_name in plot_config['measure_names']:
+        for x_coord in x_label_pos:
+            ax.axvline(x_coord, **plot_config['v_line_config'])
+    
+    for ii, sub_group in enumerate(plot_config['sub_groups']):
+        infra_name = sub_group['infra_name']
+        
+        bottom = np.zeros(len(x_label_pos))
+        for bar_nr, bar_value in enumerate(sub_group['bar_values']):
+            label = f'{bar_value}'
+            bar_height = []
+            for measure_name in plot_config['measure_names']:
+                bar_height.append(data_get_fcn(data, infra_name, measure_name, plot_config['interaction_type'], bar_value, *args))
+                
+            print(bar_height)
+            bar_handles = ax.bar(x[ii], bar_height, label=f'{label}', color=plot_config['bar_color_order'][ii][bar_nr], bottom=bottom, zorder=3, **plot_config['bar_plot_config'])
+            if label not in labels:
+                labels.append(label)
+                handles.append(bar_handles[0])
+                          
+            bottom = bottom + np.array(bar_height)
+     
+    plot_config['main_ax_config']['x_ticks'] = x_label_pos
+    set_ax_config(ax, plot_config['main_ax_config'])
+                                      
+    return handles, labels
+            
+def close_contact_box_violin_plot(ax, plot_config, data_get_fcn, data, *args):
+    x, x_label_pos = calc_x_coords(plot_config)
+    
+    handles = []
+    labels = []
+    
+    for measure_name in plot_config['measure_names']:
+        for x_coord in x_label_pos:
+            ax.axvline(x_coord, **plot_config['v_line_config'])
+    
+    for ii, sub_group in enumerate(plot_config['sub_groups']):
+        infra_name = sub_group['infra_name']
+        
+        box_data = []
+        for measure_name in plot_config['measure_names']:
+            box_data.append(data_get_fcn(data, infra_name, measure_name, plot_config['interaction_type'], *args))
+        
+        parts = ax.violinplot(box_data, positions=x[ii], **plot_config['violin_plot_config'])
+        
+        for pc in parts['bodies']:
+            pc.set_facecolor(plot_config['violin_color_order'][ii])
+            if 'edge_color' in plot_config['violin_body_plot_config']:
+                pc.set_edgecolor(plot_config['violin_body_plot_config']['edge_color'])
+                
+            if 'alpha' in plot_config['violin_body_plot_config']:    
+                pc.set_alpha(plot_config['violin_body_plot_config']['alpha'])
+    
+        box_handles = ax.boxplot(box_data, positions=x[ii], **plot_config['box_plot_config'])    
+        handles.append(pc)
+        labels.append(sub_group['label'])
+    
+    plot_config['main_ax_config']['x_ticks'] = x_label_pos
+    set_ax_config(ax, plot_config['main_ax_config'])
+    
+    return handles, labels
+
+def get_bar_height_close_contact(data, infra_name, measure_name, interaction_type, bar_value, t_label):
+    close_contacts = get_close_contact_count_per_agent(data, infra_name, measure_name, interaction_type, t_label)
+    close_contacts = np.array(close_contacts, dtype=int)
+    return get_bar_height(close_contacts, bar_value)
+
+def get_bar_height_contact(data, infra_name, measure_name, interaction_type, bar_value, data_name):
+    contacts = get_contact_count_per_agent(data, infra_name, measure_name, interaction_type, data_name)
+    return get_bar_height(contacts, bar_value)
+    
+def get_bar_height(value_distr, bar_value):
+    print(value_distr[:10])
+    print(bar_value)
+    print(np.sum(value_distr == bar_value)/len(value_distr))
+    return np.sum(value_distr == bar_value)/len(value_distr)
+
+def get_close_contact_count_per_agent(data, infra_name, measure_name, interaction_type, t_label):
+    return data[infra_name].item()[measure_name][interaction_type]['contacts'][t_label]['cc_count_per_agent']
+
+def get_contact_count_per_agent(data, infra_name, measure_name, interaction_type, data_name):
+    return data[infra_name][measure_name][data_name]
+
+def calc_x_coords(plot_config):
+    width = plot_config['box_plot_config']['widths']
+    set_count = len(plot_config['sub_groups'])
+    
+    set_gap = max(0.2, 1-width)
+    set_width = width*set_count
+    
+    x = [[] for _ in range(set_count)]
+    x_label_pos = []
+    x_coord = width/2
+    for _ in range(len(plot_config['measure_names'])):
+        x_start = x_coord
+        for ii in range(set_count): 
+            x[ii].append(x_coord)
+            x_coord += width
+        x_label_pos.append(x_start + (x_coord - width -  x_start)/2)
+        x_coord += set_gap
+        
+    return x, x_label_pos
+            
+def get_agent_count(data, interaction_type):
+    if interaction_type == 'staff_customer':
+        return data['staff_count']
+    else:
+        return data['customer_count']
+    
+def get_contact_count(data, interaction_type, t_label, name):
+    if interaction_type == 'customer_staff':
+        return data['staff_customer']['contacts'][t_label][name]
+    
+    return data[interaction_type]['contacts'][t_label][name]
+    
+#===============================================================================================================
+
+def create_fig(fig_config):
+    fig_title = None
+    if 'title' in fig_config:
+        fig_title = fig_config['title']
+        fig_config.pop('title')
+    fig = plt.figure(**fig_config)
+    if fig_title is not None:
+        fig.canvas.manager.set_window_title(fig_title)
+    
+    return fig 
+
+@lru_cache
+def load_data_from_file(data_filename):
+    return np.load(data_filename, allow_pickle=True)
+    
+#===============================================================================================================
 
 def get_data_from_files(data_folder, convert_2_minutes=False):
     combined_data_files = get_combined_data_files_from_dir(data_folder)
@@ -511,10 +735,19 @@ def create_axes(divider_config, plots_config, fig, add_v_legend=False):
         ax.set_axes_locator(divider.new_locator(nx=nx,ny=ny))
         axes.append(ax)
     
+    if 'share_y' in divider_config and divider_config['share_y']:
+        base_ax = None
+        for ii, ax in enumerate(axes):
+            if ii == 0:
+                base_ax = ax
+                continue
+            ax.sharey(base_ax)
+        
+    
     legend_ax = None
     if add_v_legend:
         legend_ax = fig.add_axes((0,0,1,1), 'legend_ax')
-        legend_ax.set_axes_locator(divider.new_locator(nx=1, nx1=1 + 2*len(axes) ,ny=3))
+        legend_ax.set_axes_locator(divider.new_locator(nx=1, nx1=2*len(axes) ,ny=3))
     
     return axes, legend_ax, hor_axes_locs, ver_axes_locs
 
@@ -891,6 +1124,9 @@ def set_ax_config(ax, ax_config):
             ax.set_yticklabels(ax_config['y_tick_labels'])
     elif 'y_tick_labels_config' in ax_config:
         ax.tick_params(axis='y', **ax_config['y_tick_labels_config'])
+
+    if 'y_ticks_visible' in ax_config:    
+        ax.yaxis.set_tick_params(labelleft=ax_config['y_ticks_visible']) 
 
     if 'x_lim' in ax_config:
         ax.set_xlim(ax_config['x_lim'])
