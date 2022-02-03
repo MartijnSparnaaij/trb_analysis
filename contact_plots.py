@@ -38,9 +38,8 @@ def create_and_save_abs_close_contact_bar_plot(fig_config, divider_config, plots
     create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, contact_count_data, add_v_legend=True)
 
 def create_and_save_change_contact_plot(fig_config, divider_config, plots_config, data_filename, save_filename):
-    plot_fcn = None
-    create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename)
-
+    plot_fcn = close_contact_change_count_plot
+    create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, add_v_legend=True)
 
 def create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, *args, add_v_legend=False):
     fig = create_fig(fig_config)
@@ -92,6 +91,39 @@ def close_contact_bar_plot(axes, legend_ax, data_in_file, plots_config):
         
     legend_ax.legend(legend_handles, legend_labels, **plot_config['legend_config'])
   
+def close_contact_change_count_plot(axes, legend_ax, data_in_file, plots_config):
+    legend_labels = []
+    legend_handles = []
+    for ax_nr, plot_config in enumerate(plots_config):
+        ax = axes[ax_nr]
+        infra_data = data_in_file[plot_config['infra_name']].item()
+        x = list(range(len(plot_config['measure_names'])))
+        base_counts = get_average_close_contact_count_per_agent(infra_data, plot_config['measure_names'], 
+                                                                     plot_config['interaction_type'], plot_config['base_case'])
+        
+  
+        for line_nr, other_case in enumerate(plot_config['other_cases']):
+            other_counts = get_average_close_contact_count_per_agent(infra_data, plot_config['measure_names'], 
+                                                                     plot_config['interaction_type'], other_case)
+  
+            line_y = [other_count - base_counts[key] for key, other_count in other_counts.items()]
+            print(line_y)
+            line_handles = ax.plot(x, line_y, color=plot_config['color_order'][line_nr], linestyle=plot_config['style_order'][line_nr], 
+                    linewidth=plot_config['width_order'][line_nr], marker=plot_config['marker_order'][line_nr], **plot_config['line_config'])
+
+            if other_case not in legend_labels:
+                legend_labels.append(other_case)
+                legend_handles.append(line_handles[0])
+  
+        for x_coord in x:
+            ax.axvline(x_coord, **plot_config['v_line_config'])
+        
+        plot_config['main_ax_config']['x_ticks'] = x  
+        set_ax_config(axes[ax_nr], plot_config['main_ax_config'])
+        
+    legend_ax.legend(legend_handles, legend_labels, **plot_config['legend_config'])
+
+  
 def close_contact_abs_count_plot(axes, legend_ax, data_in_file, plots_config, contact_count_data):
     handles, labels = close_contact_box_violin_plot(axes[0], plots_config[0], get_close_contact_count_per_agent, data_in_file, plots_config[0]['t_label'])
     
@@ -100,13 +132,13 @@ def close_contact_abs_count_plot(axes, legend_ax, data_in_file, plots_config, co
     legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
 
 def close_contact_abs_count_bar_plot(axes, legend_ax, data_in_file, plots_config, contact_count_data):
-    handles, labels = close_contact_bar_plot(axes[0], plots_config[0], get_bar_height_close_contact, data_in_file, plots_config[0]['t_label'])
+    handles, labels = close_contact_count_bar_plot(axes[0], plots_config[0], get_bar_height_close_contact, data_in_file, plots_config[0]['t_label'])
     
     close_contact_bar_plot(axes[1], plots_config[1], get_bar_height_contact, contact_count_data, plots_config[1]['data_name'])
     
     legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
     
-def close_contact_bar_plot(ax, plot_config, data_get_fcn, data, *args):
+def close_contact_count_bar_plot(ax, plot_config, data_get_fcn, data, *args):
     x, x_label_pos = calc_x_coords(plot_config)
     
     handles = []
@@ -174,6 +206,22 @@ def close_contact_box_violin_plot(ax, plot_config, data_get_fcn, data, *args):
     set_ax_config(ax, plot_config['main_ax_config'])
     
     return handles, labels
+
+def get_average_close_contact_count_per_agent(data, measure_names, interaction_type, t_label):
+    count_names = (
+        'cc_count_both',
+        'cc_count_nc',
+        'cc_count_c'
+        )
+    
+    cc_count = {}
+    
+    for measure_name in measure_names:
+        agent_count = get_agent_count(data[measure_name], interaction_type)
+        count_data = data[measure_name][interaction_type]['contacts'][t_label]
+        cc_count[measure_name] = sum([count_data[count_name] for count_name in count_names])/agent_count
+    
+    return cc_count
 
 def get_bar_height_close_contact(data, infra_name, measure_name, interaction_type, bar_value, t_label):
     close_contacts = get_close_contact_count_per_agent(data, infra_name, measure_name, interaction_type, t_label)

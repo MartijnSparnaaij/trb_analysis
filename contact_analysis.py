@@ -1192,7 +1192,10 @@ def get_config_file_content(config_filename):
     with open(config_filename, 'r') as f:
         experiment_config = json.load(f) 
 
-    scen_name = config_filename.stem.replace('_scenario_experiment.config.json', '')
+    if '.json' in config_filename.stem:
+        scen_name = config_filename.stem.replace('_scenario_experiment.config.json', '')
+    else:
+        scen_name = config_filename.stem.replace('_scenario_experiment.config', '')
     name_parts = scen_name.split('_')
     infra_name = '_'.join(name_parts[:2])
     measure_name = '_'.join(name_parts[2:])
