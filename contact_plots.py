@@ -66,8 +66,8 @@ def create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plo
 def close_contact_bar_plot(axes, legend_ax, data_in_file, plots_config):
     categories = (
         ('cc_count_both', 'Both'),
-        ('cc_count_nc', '1 minute'),
-        ('cc_count_c', '15 minutes'),
+        ('cc_count_nc', '1 minute within 1 meter'),
+        ('cc_count_c', '15 minutes within 1.5 meters'),
         )
     
     
@@ -153,14 +153,14 @@ def close_contact_abs_count_plot(axes, legend_ax, data_in_file, plots_config, co
         if 't_label' in plot_config:
             handles, labels = close_contact_box_violin_plot(axes[ax_nr], plot_config, get_close_contact_count_per_agent, data_in_file, plot_config['t_label'])
         else:
-            handles, labels = close_contact_box_violin_plot(axes[ax_nr], plot_config, get_contact_count_per_agent, contact_count_data, plot_config['data_name'])
+            handles, labels = close_contact_box_violin_plot(axes[ax_nr], plot_config, get_contact_count_per_agent, contact_count_data, plot_config['data_name'], data_in_file)
     
     legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
 
 def close_contact_abs_count_bar_plot(axes, legend_ax, data_in_file, plots_config, contact_count_data):
     handles, labels = close_contact_count_bar_plot(axes[0], plots_config[0], get_bar_height_close_contact, data_in_file, plots_config[0]['t_label'])
     
-    close_contact_count_bar_plot(axes[1], plots_config[1], get_bar_height_contact, contact_count_data, plots_config[1]['data_name'])
+    close_contact_count_bar_plot(axes[1], plots_config[1], get_bar_height_contact, contact_count_data, plots_config[1]['data_name'], data_in_file)
     
     legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
     
@@ -183,7 +183,7 @@ def close_contact_count_line_plot(axes, legend_ax, data_in_file, plots_config, c
                                                            plot_config['value'], plot_config['t_label'])
                 else:
                     y_coord = get_bar_height_contact(contact_count_data, infra_name, measure_name, plot_config['interaction_type'], 
-                                                           plot_config['value'], plot_config['data_name'])
+                                                           plot_config['value'], plot_config['data_name'], data_in_file)
                 line_y.append(y_coord)
   
             line_handles = ax.plot(x, line_y, color=plot_config['violin_color_order'][ln_nr],
@@ -283,21 +283,29 @@ def get_average_close_contact_count_per_agent(data, measure_names, interaction_t
 
 def get_bar_height_close_contact(data, infra_name, measure_name, interaction_type, bar_value, t_label):
     close_contacts = get_close_contact_count_per_agent(data, infra_name, measure_name, interaction_type, t_label)
-    close_contacts = np.array(close_contacts, dtype=int)
+    close_contacts = np.array(close_contacts, dtype=int)    
     return get_bar_height(close_contacts, bar_value)
 
-def get_bar_height_contact(data, infra_name, measure_name, interaction_type, bar_value, data_name):
-    contacts = get_contact_count_per_agent(data, infra_name, measure_name, interaction_type, data_name)
+def get_bar_height_contact(data, infra_name, measure_name, interaction_type, bar_value, data_name, data_in_file):
+    contacts = get_contact_count_per_agent(data, infra_name, measure_name, interaction_type, data_name, data_in_file)
     return get_bar_height(contacts, bar_value)
     
 def get_bar_height(value_distr, bar_value):
     return np.sum(value_distr == bar_value)/len(value_distr)
 
 def get_close_contact_count_per_agent(data, infra_name, measure_name, interaction_type, t_label):
-    return data[infra_name].item()[measure_name][interaction_type]['contacts'][t_label]['cc_count_per_agent']
+    close_contact_data = data[infra_name].item()[measure_name][interaction_type]['contacts'][t_label]['cc_count_per_agent']
+    agent_count = get_agent_count(data[infra_name].item()[measure_name], interaction_type)
+    close_contacts = np.zeros(agent_count, dtype=int)
+    close_contacts[:len(close_contact_data)] = close_contact_data
+    return close_contacts
 
-def get_contact_count_per_agent(data, infra_name, measure_name, interaction_type, data_name):
-    return data[infra_name][measure_name][data_name]
+def get_contact_count_per_agent(data, infra_name, measure_name, interaction_type, data_name, data_in_file):
+    contact_data = data[infra_name][measure_name][data_name]
+    agent_count = get_agent_count(data_in_file[infra_name].item()[measure_name], interaction_type)
+    contacts = np.zeros(agent_count, dtype=int)
+    contacts[:len(contact_data)] = contact_data    
+    return contacts
 
 def calc_x_coords(plot_config):
     width = plot_config['box_plot_config']['widths']
