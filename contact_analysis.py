@@ -1204,6 +1204,7 @@ def get_agent_cum_contact_data_from_scen_file(scenario_filenames, comb_sizes, di
           
 def get_contact_times(conn_data, time_step, dist_thres):
     contact_times = {STAFF_TYPE:{}, CUSTOMER_TYPE:{}}    
+    id_2_group_id = conn_data['ID2groupID']
     for id_tuple, proximity_data in conn_data['connData'].items():
         interaction_type, group_type_0, group_type_1 = get_interaction_type(id_tuple, id_2_group_id)    
         cum_contact_time = time_step/60*np.sum(proximity_data[:,1] <= dist_thres)
