@@ -1230,12 +1230,12 @@ def get_contact_times(conn_data, time_step, dist_thres):
 
 def get_cum_contact_times_for_sample_size(contact_times, comb_size):
     cum_contact_data_local = {STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[], CUSTOMER_STAFF:[]}
-    for _, contact_time_list in contact_times[STAFF_TYPE]:
+    for contact_time_list in contact_times[STAFF_TYPE].values():
         cum_contact_times = calc_cum_contact_times_for_sample_size(contact_time_list, comb_size)
         cum_contact_data_local[STAFF_CUSTOMER] += cum_contact_times
  
-    for _, contact_times_per_group in contact_times[CUSTOMER_TYPE]:
-        for other_group_type, contact_time_list in contact_times_per_group:
+    for contact_times_per_group in contact_times[CUSTOMER_TYPE].values():
+        for other_group_type, contact_time_list in contact_times_per_group.items():
             if len(contact_time_list) == 0:
                 continue
             cum_contact_times = calc_cum_contact_times_for_sample_size(contact_time_list, comb_size)
@@ -1245,7 +1245,7 @@ def get_cum_contact_times_for_sample_size(contact_times, comb_size):
                 cum_contact_data_local[CUSTOMER_CUSTOMER] += cum_contact_times
                 
     cum_contact_data_local['all'] = cum_contact_data_local[STAFF_CUSTOMER]
-    for _, contact_times_per_group in contact_times[CUSTOMER_TYPE]:
+    for contact_times_per_group in contact_times[CUSTOMER_TYPE].values():
         contact_time_list = contact_times_per_group[STAFF_TYPE] + contact_times_per_group[STAFF_TYPE]
         cum_contact_times = calc_cum_contact_times_for_sample_size(contact_time_list, comb_size)
         cum_contact_data_local['all'] += cum_contact_times    
