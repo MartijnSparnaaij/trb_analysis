@@ -54,6 +54,11 @@ def create_and_save_rel_change_contact_plot(fig_config, divider_config, plots_co
     rel_change = True
     create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, rel_change, add_v_legend=True)
 
+def create_and_save_cum_contact_plot(fig_config, divider_config, plots_config, data_filename, save_filename):
+    plot_fcn = close_contact_cum_time_plot
+    create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, add_v_legend=True)
+#---------------------------------------------------------------------------------------------------------------
+
 def create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, *args, add_v_legend=False):
     fig = create_fig(fig_config)
     axes, legend_ax, left_label_axes, _, _ = create_axes(divider_config, plots_config, fig, add_v_legend)
@@ -67,6 +72,11 @@ def create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plo
         plot_fcn(axes, legend_ax, data_in_file, plots_config, *args)
     plt.savefig(save_filename)
     
+def close_contact_cum_time_plot(axes, legend_ax, data_in_file, plots_config):
+    for ax_nr, plot_config in enumerate(plots_config):
+        handles, labels = close_contact_box_violin_plot(axes[ax_nr], plot_config, get_cum_contact_times, data_in_file, plot_config['comb_size'])
+     
+    legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
     
 def close_contact_bar_plot(axes, legend_ax, data_in_file, plots_config):
     categories = (
@@ -340,6 +350,9 @@ def get_contact_count_per_agent(data, infra_name, measure_name, interaction_type
     contacts = np.zeros(agent_count, dtype=int)
     contacts[:len(contact_data)] = contact_data    
     return contacts
+
+def get_cum_contact_times(data, infra_name, measure_name, interaction_type, comb_size):
+    return data[infra_name].item()[measure_name][interaction_type][comb_size]
 
 def calc_x_coords(plot_config):
     if 'bar_plot_config' in plot_config:
