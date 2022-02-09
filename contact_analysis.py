@@ -1174,17 +1174,36 @@ def calc_if_has_non_cum_close_contact(proximity_data, time_step, non_cum_thresho
 # ================================================================================================
             
 def get_agent_cum_contact_data(output_filename, config_filenames, comb_sizes, dist_thres):
-    cum_contact_data_all = defaultdict(dict)
+    cur_infra_name = None
     for config_filename in config_filenames:
         print(f'Processing {config_filename.stem}...')
         experiment_config, infra_name, measure_name = get_config_file_content(config_filename)
+        if cur_infra_name is None:
+            cur_infra_name = infra_name
+            cum_contact_data_all = defaultdict(dict)
+        elif cur_infra_name != infra_name:
+            save_file_name = get_save_file_name(output_filename, cur_infra_name)
+            np.savez(save_file_name, **cum_contact_data_all)
+            load_file_name = get_save_file_name(output_filename, infra_name)
+            if load_file_name.is_file():
+                data_from_file = np.load(load_file_name, allow_pickle=True)
+                cum_contact_data_all = {}
+                for key, val in data_from_file.items(): 
+                    cum_contact_data_all[key] = value.item()
+            else:
+                cum_contact_data_all = defaultdict(dict)
+                
         experiment_state, experiment_state_filename = get_experiment_state(experiment_config)
         scenario_filenames = get_scenario_filenames(experiment_state_filename.parent.parent, experiment_state['successful_replications'])
         cum_contact_data = get_agent_cum_contact_data_from_scen_file(scenario_filenames, comb_sizes, dist_thres)
-        cum_contact_data_all[infra_name][measure_name] = cum_contact_data
-                        
-    np.savez(output_filename, **cum_contact_data_all)
-            
+        cum_contact_data_all[measure_name] = cum_contact_data
+    
+    
+    save_file_name = get_save_file_name(output_filename, cur_infra_name)
+    np.savez(save_file_name, **cum_contact_data_all)
+         
+def get_save_file_name(output_filename, infra_name):
+    return output_filename.parent.joinpath(f'{infra_name}_{output_filename.stem}')
             
 def get_agent_cum_contact_data_from_scen_file(scenario_filenames, comb_sizes, dist_thres):
     file_count = len(scenario_filenames)
