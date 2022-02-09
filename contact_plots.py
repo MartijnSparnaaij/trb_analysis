@@ -28,6 +28,9 @@ def create_and_save_rel_close_contact_plot(fig_config, divider_config, plots_con
     plot_fcn = close_contact_bar_plot
     create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, add_v_legend=True)
 
+def create_and_save_rel_single_close_contact_plot(fig_config, divider_config, plots_config, data_filename, save_filename):
+    plot_fcn = close_contact_rel_count_bar_plot
+    create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, add_v_legend=True)
 
 def create_and_save_abs_close_contact_plot(fig_config, divider_config, plots_config, data_filename, save_filename, contact_count_data):
     plot_fcn = close_contact_abs_count_plot
@@ -53,13 +56,15 @@ def create_and_save_rel_change_contact_plot(fig_config, divider_config, plots_co
 
 def create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, *args, add_v_legend=False):
     fig = create_fig(fig_config)
-    axes, legend_ax, _, _ = create_axes(divider_config, plots_config, fig, add_v_legend)
+    axes, legend_ax, left_label_axes, _, _ = create_axes(divider_config, plots_config, fig, add_v_legend)
     if legend_ax is not None:
         legend_ax.set_axis_off()
 
-
     data_in_file = load_data_from_file(data_filename)
-    plot_fcn(axes, legend_ax, data_in_file, plots_config, *args)    
+    if left_label_axes is not None:
+        plot_fcn(axes, legend_ax, data_in_file, plots_config, *args, left_label_axes=left_label_axes)
+    else:        
+        plot_fcn(axes, legend_ax, data_in_file, plots_config, *args)
     plt.savefig(save_filename)
     
     
@@ -104,7 +109,7 @@ def close_contact_bar_plot(axes, legend_ax, data_in_file, plots_config):
         
     legend_ax.legend(legend_handles, legend_labels, **plot_config['legend_config'])
   
-def close_contact_change_count_plot(axes, legend_ax, data_in_file, plots_config, rel_change):
+def close_contact_change_count_plot(axes, legend_ax, data_in_file, plots_config, rel_change, left_label_axes=None):
     legend_labels = []
     legend_handles = []
     for ax_nr, plot_config in enumerate(plots_config):
@@ -142,13 +147,22 @@ def close_contact_change_count_plot(axes, legend_ax, data_in_file, plots_config,
         for x_coord in x:
             ax.axvline(x_coord, **plot_config['v_line_config'])
         
+        if 'h_line_config' in plot_config:
+            y_coord = plot_config['h_line_config']['y_coord']
+            plot_config['h_line_config'].pop('y_coord')
+            ax.axhline(y_coord, **plot_config['h_line_config'])
+            
+        if 'left_label' in plot_config:
+            ax_ind, label = plot_config['left_label']
+            left_label_axes[ax_ind].text(0.5, 0.5, label, **plot_config['text_config'])
+            
+        
         plot_config['main_ax_config']['x_ticks'] = x  
         set_ax_config(axes[ax_nr], plot_config['main_ax_config'])
         
     legend_ax.legend(legend_handles, legend_labels, **plot_config['legend_config'])
   
 def close_contact_abs_count_plot(axes, legend_ax, data_in_file, plots_config, contact_count_data):
-
     for ax_nr, plot_config in enumerate(plots_config):
         if 't_label' in plot_config:
             handles, labels = close_contact_box_violin_plot(axes[ax_nr], plot_config, get_close_contact_count_per_agent, data_in_file, plot_config['t_label'])
@@ -158,11 +172,20 @@ def close_contact_abs_count_plot(axes, legend_ax, data_in_file, plots_config, co
     legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
 
 def close_contact_abs_count_bar_plot(axes, legend_ax, data_in_file, plots_config, contact_count_data):
-    handles, labels = close_contact_count_bar_plot(axes[0], plots_config[0], get_bar_height_close_contact, data_in_file, plots_config[0]['t_label'])
-    
-    close_contact_count_bar_plot(axes[1], plots_config[1], get_bar_height_contact, contact_count_data, plots_config[1]['data_name'], data_in_file)
+    for ax_nr, plot_config in enumerate(plots_config):
+        if 't_label' in plot_config:
+            handles, labels = close_contact_count_bar_plot(axes[ax_nr], plots_config[ax_nr], get_bar_height_close_contact, data_in_file, plots_config[ax_nr]['t_label'])
+        else:
+            handles, labels = close_contact_count_bar_plot(axes[ax_nr], plots_config[ax_nr], get_bar_height_contact, contact_count_data, plots_config[ax_nr]['data_name'], data_in_file)
     
     legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
+    
+def close_contact_rel_count_bar_plot(axes, legend_ax, data_in_file, plots_config):
+    for ax_nr, plot_config in enumerate(plots_config):
+        handles, labels = close_contact_count_bar_plot(axes[ax_nr], plots_config[ax_nr], get_average_close_contact_count_cat, data_in_file, plots_config[ax_nr]['t_label'])
+    
+    legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
+    
     
 def close_contact_count_line_plot(axes, legend_ax, data_in_file, plots_config, contact_count_data):
     labels = []
@@ -203,6 +226,8 @@ def close_contact_count_bar_plot(ax, plot_config, data_get_fcn, data, *args):
     handles = []
     labels = []
     
+    infra_names_2_label = plot_config['infra_names_2_label']
+    
     for measure_name in plot_config['measure_names']:
         for x_coord in x_label_pos:
             ax.axvline(x_coord, **plot_config['v_line_config'])
@@ -212,7 +237,10 @@ def close_contact_count_bar_plot(ax, plot_config, data_get_fcn, data, *args):
         
         bottom = np.zeros(len(x_label_pos))
         for bar_nr, bar_value in enumerate(sub_group['bar_values']):
-            label = f'{infra_name} - count = {bar_value}'
+            if 'legend_labels' in sub_group:
+                label = f'{infra_names_2_label[infra_name]} - {sub_group["legend_labels"][bar_value]}'
+            else:
+                label = f'{infra_names_2_label[infra_name]} - {sub_group["value_label"]} = {bar_value}'
             bar_height = []
             for measure_name in plot_config['measure_names']:
                 bar_height.append(data_get_fcn(data, infra_name, measure_name, plot_config['interaction_type'], bar_value, *args))
@@ -281,6 +309,12 @@ def get_average_close_contact_count_per_agent(data, measure_names, interaction_t
     
     return cc_count
 
+def get_average_close_contact_count_cat(data, infra_name, measure_name, interaction_type, bar_value, t_label):
+    contact_data = data[infra_name].item()[measure_name]
+    agent_count = get_agent_count(contact_data, interaction_type)
+    contact_count = get_contact_count(contact_data, interaction_type, t_label, bar_value)
+    return contact_count/agent_count
+
 def get_bar_height_close_contact(data, infra_name, measure_name, interaction_type, bar_value, t_label):
     close_contacts = get_close_contact_count_per_agent(data, infra_name, measure_name, interaction_type, t_label)
     close_contacts = np.array(close_contacts, dtype=int)    
@@ -308,7 +342,10 @@ def get_contact_count_per_agent(data, infra_name, measure_name, interaction_type
     return contacts
 
 def calc_x_coords(plot_config):
-    width = plot_config['box_plot_config']['widths']
+    if 'bar_plot_config' in plot_config:
+        width = plot_config['bar_plot_config']['width']
+    else:  
+        width = plot_config['box_plot_config']['widths']
     set_count = len(plot_config['sub_groups'])
     
     set_gap = max(0.2, 1-width)
@@ -771,7 +808,7 @@ def create_and_save_percentile_paper_plot(fig_config, save_filename, divider_con
     if fig_title is not None:
         fig.canvas.manager.set_window_title(fig_title)
     
-    axes, _, _, ver_axes_locs = create_axes(divider_config, plots_config, fig)
+    axes, _, _, _, ver_axes_locs = create_axes(divider_config, plots_config, fig)
     
     y_lim_sets = defaultdict(list)
     
@@ -802,7 +839,7 @@ def create_and_save_percentile_paper_plot(fig_config, save_filename, divider_con
 def create_and_save_box_paper_plot(fig_config, save_filename, divider_config, plots_config, data):
     fig = plt.figure(**fig_config)
     
-    axes, _, _, _ = create_axes(divider_config, plots_config, fig)
+    axes, _, _, _, _ = create_axes(divider_config, plots_config, fig)
     
     for ax_nr, plot_config in enumerate(plots_config):
         ax = axes[ax_nr]
@@ -822,7 +859,14 @@ def create_and_save_box_paper_plot(fig_config, save_filename, divider_config, pl
 def create_axes(divider_config, plots_config, fig, add_v_legend=False):
     hor_axes_locs, ver_axes_locs = get_ax_locs(divider_config, plots_config)
 
-    hor_division = [Size.Fixed(divider_config['left'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_hor'])]*max(hor_axes_locs) + [Size.Scaled(1), Size.Fixed(divider_config['right'])]
+    if 'left_label' in divider_config:
+        hor_division = [Size.Fixed(divider_config['left_label'])]
+        hor_start_ind = 2
+    else:
+        hor_division = []
+        hor_start_ind = 1
+
+    hor_division += [Size.Fixed(divider_config['left'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_hor'])]*max(hor_axes_locs) + [Size.Scaled(1), Size.Fixed(divider_config['right'])]
     ver_division = [Size.Fixed(divider_config['bottom'])] + [Size.Scaled(1), Size.Fixed(divider_config['gap_ver'])]*max(ver_axes_locs)
     if add_v_legend:
         ver_division += [Size.Scaled(1), Size.Fixed(divider_config['top']), Size.Fixed(divider_config['v_legend'])]
@@ -830,6 +874,7 @@ def create_axes(divider_config, plots_config, fig, add_v_legend=False):
         ver_division += [Size.Scaled(1), Size.Fixed(divider_config['top'])]  
     divider = Divider(fig, (0,0,1,1), hor_division, ver_division, aspect=False)
 
+    ax_y_coords = set()
     axes = []
     for ax_nr, plot_config in enumerate(plots_config):
         if 'ax_loc' in plot_config:
@@ -839,22 +884,37 @@ def create_axes(divider_config, plots_config, fig, add_v_legend=False):
             hor_axes_nr = hor_axes_locs[ax_nr]
             ver_axes_nr = ver_axes_locs[ax_nr]
 
-        nx = 1 + 2*hor_axes_nr
+        nx = hor_start_ind + 2*hor_axes_nr
         ny = 1 + 2*ver_axes_nr
             
         ax = fig.add_axes((0,0,1,1), f'main_ax_{ax_nr}')
         ax.set_axes_locator(divider.new_locator(nx=nx,ny=ny))
         axes.append(ax)
-    
-    if 'share_y' in divider_config and divider_config['share_y']:
-        base_ax = None
-        for ii, ax in enumerate(axes):
-            if ii == 0:
-                base_ax = ax
-                continue
-            ax.sharey(base_ax)
+        ax_y_coords.add(ny)
         
+    left_label_axes = None
+    if 'left_label' in divider_config:
+        left_label_axes = []
+        for y_coord in ax_y_coords:
+            left_label_ax = fig.add_axes((0,0,1,1), 'left_label_ax')
+            left_label_ax.set_axes_locator(divider.new_locator(nx=0, ny=y_coord))
+            left_label_axes.append(left_label_ax)
+            left_label_ax.set_axis_off()
     
+    if 'share_y' in divider_config:
+        if isinstance(divider_config['share_y'], (list, tuple)):
+            for share_set in divider_config['share_y']:
+                base_ax = axes[share_set[0]]
+                for ax_ind in share_set[1:]:
+                    axes[ax_ind].sharey(base_ax)
+        elif divider_config['share_y']:
+            base_ax = None
+            for ii, ax in enumerate(axes):
+                if ii == 0:
+                    base_ax = ax
+                    continue
+                ax.sharey(base_ax)
+            
     legend_ax = None
     if add_v_legend:
         legend_ax = fig.add_axes((0,0,1,1), 'legend_ax')
@@ -862,7 +922,7 @@ def create_axes(divider_config, plots_config, fig, add_v_legend=False):
         ny = len(ver_division) - 1
         legend_ax.set_axes_locator(divider.new_locator(nx=0, nx1=nx1, ny=ny))
     
-    return axes, legend_ax, hor_axes_locs, ver_axes_locs
+    return axes, legend_ax, left_label_axes, hor_axes_locs, ver_axes_locs
 
 def get_ax_locs(divider_config, plots_config):
     if 'hor_axes_locs' in divider_config:
@@ -1271,7 +1331,7 @@ def create_compare_plot(fig_config, divider_config, plots_config, data):
     if fig_title is not None:
         fig.canvas.manager.set_window_title(fig_title)
     
-    axes, legend_ax, _, _ = create_axes(divider_config, plots_config, fig, add_v_legend=True)
+    axes, legend_ax, _, _, _ = create_axes(divider_config, plots_config, fig, add_v_legend=True)
     legend_ax.set_axis_off()
     
     for ax_nr, plot_config in enumerate(plots_config):
