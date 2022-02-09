@@ -1201,8 +1201,8 @@ def get_agent_cum_contact_data_from_scen_file(scenario_filenames, comb_sizes, di
         for comb_size in comb_sizes:
             cum_contact_data_local = get_cum_contact_times_for_sample_size(contact_times, comb_size)
             for interaction_type in INTERACTION_TYPES:
-                cum_contact_data[interaction_type][comb_size] += cum_contact_data_local[interaction_type][comb_size]
-            cum_contact_data['all'][comb_size] += cum_contact_data_local['all'][comb_size]
+                cum_contact_data[interaction_type][comb_size] += cum_contact_data_local[interaction_type]
+            cum_contact_data['all'][comb_size] += cum_contact_data_local['all']
                             
     return cum_contact_data
           
