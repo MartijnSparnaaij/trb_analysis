@@ -14,6 +14,7 @@ import multiprocessing
 from pathlib import Path
 from time import sleep
 import traceback
+import itertools as it
 
 from pubsub import pub
 from scipy import stats
@@ -1169,7 +1170,99 @@ def calc_if_has_non_cum_close_contact(proximity_data, time_step, non_cum_thresho
     has_non_cum_close_contact = np.any(np.array(time_periods) > non_cum_thresholds.time)
     
     return has_non_cum_close_contact
+
+# ================================================================================================
             
+def get_agent_cum_contact_data(output_filename, config_filenames, comb_sizes, dist_thres):
+    cum_contact_data_all = defaultdict(dict)
+    for config_filename in config_filenames:
+        print(f'Processing {config_filename.stem}...')
+        experiment_config, infra_name, measure_name = get_config_file_content(config_filename)
+        experiment_state, experiment_state_filename = get_experiment_state(experiment_config)
+        scenario_filenames = get_scenario_filenames(experiment_state_filename.parent.parent, experiment_state['successful_replications'])
+        cum_contact_data = get_agent_cum_contact_data_from_scen_file(scenario_filenames, comb_sizes, dist_thres)
+        cum_contact_data_all[infra_name][measure_name] = cum_contact_data
+                        
+    np.savez(output_filename, **cum_contact_data_all)
+            
+            
+def get_agent_cum_contact_data_from_scen_file(scenario_filenames, comb_sizes, dist_thres):
+    file_count = len(scenario_filenames)
+    cum_contact_data = {interaction_type:{comb_size: [] for comb_size in comb_sizes} for interaction_type in INTERACTION_TYPES}
+    for ii, scenario_filename in enumerate(scenario_filenames):
+        print(f'Processing {ii+1} of {file_count}')
+        try:
+            peds, conn_data, time_step = get_ped_and_conn_data(scenario_filename)
+        except:
+            continue
+        
+        contact_times = get_contact_times(conn_data, time_step, dist_thres)
+        for comb_size in comb_sizes:
+            cum_contact_data_local = get_cum_contact_times(contact_times, comb_size)
+                            
+    return cum_contact_data
+          
+def get_contact_times(conn_data, time_step, dist_thres):
+    contact_times = {STAFF_TYPE:{}, CUSTOMER_TYPE:{}}    
+    for id_tuple, proximity_data in conn_data['connData'].items():
+        interaction_type, group_type_0, group_type_1 = get_interaction_type(id_tuple, id_2_group_id)    
+        cum_contact_time = time_step/60*np.sum(proximity_data[:,1] <= dist_thres)
+        if cum_contact_time > 0:
+            if group_type_0 == STAFF_TYPE: 
+                if id_tuple[0] not in contact_times[STAFF_TYPE]:
+                    contact_times[STAFF_TYPE][id_tuple[0]] = []
+                contact_times[STAFF_TYPE][id_tuple[0]].append(cum_contact_time)
+                if id_tuple[1] not in contact_times[CUSTOMER_TYPE]:
+                    contact_times[CUSTOMER_TYPE][id_tuple[1]] = {STAFF_TYPE:[], CUSTOMER_TYPE:[]}
+                contact_times[CUSTOMER_TYPE][id_tuple[1]][STAFF_TYPE].append(cum_contact_time)
+            else:
+                if id_tuple[0] not in contact_times[CUSTOMER_TYPE]:
+                    contact_times[CUSTOMER_TYPE][id_tuple[0]] = {STAFF_TYPE:[], CUSTOMER_TYPE:[]}
+                
+                contact_times[CUSTOMER_TYPE][id_tuple[0]][group_type_1].append(cum_contact_time)
+                if group_type_1 == STAFF_TYPE:
+                    if id_tuple[1] not in contact_times[STAFF_TYPE]:
+                        contact_times[STAFF_TYPE][id_tuple[1]] = []
+                    contact_times[STAFF_TYPE][id_tuple[1]].append(cum_contact_time)
+            
+    return contact_times
+
+def get_cum_contact_times_for_sample_size(contact_times, comb_size):
+    cum_contact_data_local = {STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[], CUSTOMER_STAFF:[]}
+    for _, contact_time_list in contact_times[STAFF_TYPE]:
+        cum_contact_times = calc_cum_contact_times_for_sample_size(contact_time_list, comb_size)
+        cum_contact_data_local[STAFF_CUSTOMER] += cum_contact_times
+ 
+    for _, contact_times_per_group in contact_times[CUSTOMER_TYPE]:
+        for other_group_type, contact_time_list in contact_times_per_group:
+            if len(contact_time_list) == 0:
+                continue
+            cum_contact_times = calc_cum_contact_times_for_sample_size(contact_time_list, comb_size)
+            if other_group_type == STAFF_TYPE:
+                cum_contact_data_local[CUSTOMER_STAFF] += cum_contact_times
+            else:
+                cum_contact_data_local[CUSTOMER_CUSTOMER] += cum_contact_times
+                
+    cum_contact_data_local['all'] = cum_contact_data_local[STAFF_CUSTOMER]
+    for _, contact_times_per_group in contact_times[CUSTOMER_TYPE]:
+        contact_time_list = contact_times_per_group[STAFF_TYPE] + contact_times_per_group[STAFF_TYPE]
+        cum_contact_times = calc_cum_contact_times_for_sample_size(contact_time_list, comb_size)
+        cum_contact_data_local['all'] += cum_contact_times    
+          
+    return cum_contact_data_local
+
+def calc_cum_contact_times_for_sample_size(contact_time_list, comb_size):
+    combs = np.array(list(it.combinations(contact_time_list, comb_size)))
+    if len(combs) == 0:
+        comb_size -= 1
+        while comb_size > 1:
+            combs = np.array(list(it.combinations(contact_time_list, comb_size)))
+            comb_size -= 1
+            if len(combs) > 0:
+                break
+             
+    return np.sum(combs, axis=1).tolist()
+
 # ================================================================================================
 
 def get_scenario_filenames(pd, seeds):
@@ -1226,7 +1319,7 @@ def get_interaction_type(id_tuple, id_2_group_id):
     group_type_0 = STAFF_TYPE if id_2_group_id[id_tuple[0]] == STAFF_TYPE else CUSTOMER_TYPE
     group_type_1 = STAFF_TYPE if id_2_group_id[id_tuple[1]] == STAFF_TYPE else CUSTOMER_TYPE
     
-    if group_type_0  == STAFF_TYPE or group_type_1 == STAFF_TYPE:
+    if group_type_0 == STAFF_TYPE or group_type_1 == STAFF_TYPE:
         return STAFF_CUSTOMER, group_type_0, group_type_1
     else:
         return CUSTOMER_CUSTOMER, group_type_0, group_type_1
