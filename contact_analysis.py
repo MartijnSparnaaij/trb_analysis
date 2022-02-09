@@ -1198,7 +1198,7 @@ def get_agent_cum_contact_data_from_scen_file(scenario_filenames, comb_sizes, di
         
         contact_times = get_contact_times(conn_data, time_step, dist_thres)
         for comb_size in comb_sizes:
-            cum_contact_data_local = get_cum_contact_times(contact_times, comb_size)
+            cum_contact_data_local = get_cum_contact_times_for_sample_size(contact_times, comb_size)
                             
     return cum_contact_data
           
