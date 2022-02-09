@@ -1189,6 +1189,7 @@ def get_agent_cum_contact_data(output_filename, config_filenames, comb_sizes, di
 def get_agent_cum_contact_data_from_scen_file(scenario_filenames, comb_sizes, dist_thres):
     file_count = len(scenario_filenames)
     cum_contact_data = {interaction_type:{comb_size: [] for comb_size in comb_sizes} for interaction_type in INTERACTION_TYPES}
+    cum_contact_data['all'] = {comb_size: [] for comb_size in comb_sizes}
     for ii, scenario_filename in enumerate(scenario_filenames):
         print(f'Processing {ii+1} of {file_count}')
         try:
@@ -1199,6 +1200,13 @@ def get_agent_cum_contact_data_from_scen_file(scenario_filenames, comb_sizes, di
         contact_times = get_contact_times(conn_data, time_step, dist_thres)
         for comb_size in comb_sizes:
             cum_contact_data_local = get_cum_contact_times_for_sample_size(contact_times, comb_size)
+        
+        for interaction_type in INTERACTION_TYPES:
+            for comb_size in comb_sizes:
+                cum_contact_data[interaction_type][comb_sizes] = cum_contact_data_local[interaction_type][comb_sizes]
+
+        for comb_size in comb_sizes:
+            cum_contact_data['all'][comb_sizes] = cum_contact_data_local['all'][comb_sizes]
                             
     return cum_contact_data
           
