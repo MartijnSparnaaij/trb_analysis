@@ -1261,7 +1261,8 @@ def calc_cum_contact_times_for_sample_size(contact_time_list, comb_size):
             comb_size -= 1
             if len(combs) > 0:
                 break
-             
+    if combs.ndim == 1:
+        return contact_time_list
     return np.sum(combs, axis=1).tolist()
 
 # ================================================================================================
