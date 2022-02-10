@@ -57,6 +57,11 @@ def create_and_save_rel_change_contact_plot(fig_config, divider_config, plots_co
 def create_and_save_cum_contact_plot(fig_config, divider_config, plots_config, data_filename, save_filename):
     plot_fcn = close_contact_cum_time_plot
     create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, add_v_legend=True)
+
+def create_and_save_cum_contact_prob_plot(fig_config, divider_config, plots_config, data_filename, save_filename):
+    plot_fcn = close_contact_cum_time_prob_plot
+    create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, add_v_legend=True)
+
 #---------------------------------------------------------------------------------------------------------------
 
 def create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, *args, add_v_legend=False):
@@ -77,6 +82,36 @@ def close_contact_cum_time_plot(axes, legend_ax, data_in_file, plots_config):
         handles, labels = close_contact_box_violin_plot(axes[ax_nr], plot_config, get_cum_contact_times, data_in_file, plot_config['comb_size'])
      
     legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
+    
+def close_contact_cum_time_prob_plot(axes, legend_ax, data_in_file, plots_config):
+    legend_labels = []
+    legend_handles = []
+    
+    for ax_nr, plot_config in enumerate(plots_config):
+        ax = axes[ax_nr]
+        x = list(range(len(plot_config['comb_sizes'])))
+        infra_data = data_in_file[plot_config['infra_name']].item()
+        interaction_type = plot_config['interaction_type']
+        for line_nr, measure_name in enumerate(plot_config['measure_names']):
+            line_y = []
+            for comb_size in plot_config['comb_sizes']:
+                line_y.append(infra_data[measure_name][interaction_type][comb_size])
+            
+            line_handles = ax.plot(x, line_y, color=plot_config['line_color_order'][line_nr], linestyle=plot_config['style_order'][line_nr], 
+                linewidth=plot_config['width_order'][line_nr], marker=plot_config['marker_order'][line_nr], **plot_config['line_config'])
+
+            label = plot_config['measure_2_label'][measure_name]
+            if label not in legend_labels:
+                legend_labels.append(label)
+                legend_handles.append(line_handles[0])
+  
+        for x_coord in x:
+            ax.axvline(x_coord, **plot_config['v_line_config'])
+            
+        plot_config['main_ax_config']['x_ticks'] = x
+        set_ax_config(axes[ax_nr], plot_config['main_ax_config'])
+    
+    legend_ax.legend(legend_handles, legend_labels, **plot_config['legend_config'])
     
 def close_contact_bar_plot(axes, legend_ax, data_in_file, plots_config):
     categories = (

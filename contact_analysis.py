@@ -1196,8 +1196,7 @@ def get_agent_cum_contact_data(output_filename, config_filenames, comb_sizes, di
         experiment_state, experiment_state_filename = get_experiment_state(experiment_config)
         scenario_filenames = get_scenario_filenames(experiment_state_filename.parent.parent, experiment_state['successful_replications'])
         cum_contact_data = get_agent_cum_contact_data_from_scen_file(scenario_filenames, comb_sizes, dist_thres)
-        cum_contact_data_all[measure_name] = cum_contact_data
-    
+        cum_contact_data_all[measure_name] = cum_contact_data    
     
     save_file_name = get_save_file_name(output_filename, cur_infra_name)
     np.savez(save_file_name, **cum_contact_data_all)
@@ -1287,6 +1286,27 @@ def calc_cum_contact_times_for_sample_size(contact_time_list, comb_size):
     if combs.ndim == 1:
         return contact_time_list
     return np.sum(combs, axis=1).tolist()
+
+# ================================================================================================
+def process_cum_contact_file(input_filename, output_filename, time_thres):
+    data_in_file = np.load(input_filename, allow_pickle=True)
+    thres_probs = {}
+    for infra_name, infra_data in data_in_file.items():
+        print(infra_name)
+        thres_probs[infra_name] = {}
+        infra_data = infra_data.item()
+        for measure_name, measure_data in infra_data.items():
+            print(measure_name)
+            thres_probs[infra_name][measure_name] = {}
+            for interaction_type, intact_data in measure_data.items():
+                print(interaction_type)
+                thres_probs[infra_name][measure_name][interaction_type] = {}
+                for comb_size, contact_time_array in intact_data.items():
+                    print(comb_size)
+                    prob = np.sum(contact_time_array >= time_thres)/len(contact_time_array)
+                    thres_probs[infra_name][measure_name][interaction_type][comb_size] = prob
+    
+    np.savez(output_filename, **thres_probs)
 
 # ================================================================================================
 
