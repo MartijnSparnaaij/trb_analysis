@@ -1267,7 +1267,7 @@ def get_cum_contact_times_for_sample_size(contact_times, comb_size):
             else:
                 cum_contact_data_local[CUSTOMER_CUSTOMER] += cum_contact_times
                 
-    cum_contact_data_local['all'] = cum_contact_data_local[STAFF_CUSTOMER]
+    cum_contact_data_local['all'] = deepcopy(cum_contact_data_local[STAFF_CUSTOMER])
     for contact_times_per_group in contact_times[CUSTOMER_TYPE].values():
         contact_time_list = contact_times_per_group[STAFF_TYPE] + contact_times_per_group[CUSTOMER_TYPE]
         cum_contact_times = calc_cum_contact_times_for_sample_size(contact_time_list, comb_size)
