@@ -1270,7 +1270,9 @@ def get_cum_contact_times_for_sample_size(contact_times, comb_size):
     print(f'Only staff_customer: {len(cum_contact_data_local["all"])}')
     for contact_times_per_group in contact_times[CUSTOMER_TYPE].values():
         contact_time_list = contact_times_per_group[STAFF_TYPE] + contact_times_per_group[STAFF_TYPE]
+        print(len(contact_time_list))
         cum_contact_times = calc_cum_contact_times_for_sample_size(contact_time_list, comb_size)
+        print(len(cum_contact_times))
         cum_contact_data_local['all'] += cum_contact_times    
     
     print(f'All: {len(cum_contact_data_local["all"])}')      
