@@ -1192,6 +1192,7 @@ def get_agent_cum_contact_data(output_filename, config_filenames, comb_sizes, di
                     cum_contact_data_all[key] = value.item()
             else:
                 cum_contact_data_all = defaultdict(dict)
+            cur_infra_name = infra_name
                 
         experiment_state, experiment_state_filename = get_experiment_state(experiment_config)
         scenario_filenames = get_scenario_filenames(experiment_state_filename.parent.parent, experiment_state['successful_replications'])
@@ -1307,6 +1308,28 @@ def process_cum_contact_file(input_filename, output_filename, time_thres):
                     thres_probs[infra_name][measure_name][interaction_type][comb_size] = prob
     
     np.savez(output_filename, **thres_probs)
+
+def process_cum_contact_files(infra_name_2_file, output_filename, time_thres):
+    
+    thres_probs = {}
+    for infra_name, input_filename in infra_name_2_file.items():
+        infra_data = np.load(input_filename, allow_pickle=True)
+        print(infra_name)
+        thres_probs[infra_name] = {}
+        for measure_name, measure_data in infra_data.items():
+            measure_data = measure_data.item()
+            print(measure_name)
+            thres_probs[infra_name][measure_name] = {}
+            for interaction_type, intact_data in measure_data.items():
+                print(interaction_type)
+                thres_probs[infra_name][measure_name][interaction_type] = {}
+                for comb_size, contact_time_array in intact_data.items():
+                    print(comb_size)
+                    prob = np.sum(contact_time_array >= time_thres)/len(contact_time_array)
+                    thres_probs[infra_name][measure_name][interaction_type][comb_size] = prob
+    
+    np.savez(output_filename, **thres_probs)
+
 
 # ================================================================================================
 
