@@ -14,18 +14,18 @@ font.style:   normal
 font.variant: normal
 font.weight:  normal
 font.stretch: normal
-font.size:    10.0
+font.size:    9.0
 
 ## ***************************************************************************
-## * SIZES                                                                   *
+## * FONT SIZES                                                                   *
 ## ***************************************************************************
 
-xtick.labelsize: 9
-ytick.labelsize: 9
-axes.titlesize: 10
-axes.labelsize: 10
-legend.fontsize: 9
-legend.title_fontsize: 10
+xtick.labelsize:       8
+ytick.labelsize:       8
+axes.titlesize:        9
+axes.labelsize:        8
+legend.fontsize:       8
+legend.title_fontsize: 9
 
 ## ***************************************************************************
 ## * BOXPLOT                                                                 *
@@ -39,7 +39,6 @@ boxplot.flierprops.marker:          x
 boxplot.flierprops.markeredgecolor: 0.2
 boxplot.flierprops.markeredgewidth: 1.0
 boxplot.flierprops.markersize:      4
-boxplot.flierprops.linestyle:       none
 boxplot.flierprops.linewidth:       1.0
 
 boxplot.boxprops.color:     black
@@ -51,3 +50,13 @@ boxplot.capprops.linewidth: 1.5
 
 boxplot.medianprops.color:  tab:orange
 boxplot.medianprops.linewidth: 1.5
+
+
+## ***************************************************************************
+## * LEGEND                                                                  *
+## ***************************************************************************
+legend.loc:     upper center
+legend.handlelength:   1.2
+legend.handleheight:   0.5 
+legend.columnspacing:  1.0
+legend.handletextpad:  0.6

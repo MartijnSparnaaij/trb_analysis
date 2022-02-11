@@ -4,6 +4,17 @@ Created on 13 Jul 2021
 @author: Martijn Sparnaaij
 '''
 
+
+CONTINUOUS = 1
+CATEGORICAL = 2
+
+INFRA_COMP = 1
+SETUP_COMP = 2
+CC_DEF_COMP = 3
+
+CLOSE_CONTACTS = 1
+CONTACTS = 2
+ 
 from _collections import defaultdict
 from copy import deepcopy
 import csv
@@ -54,9 +65,9 @@ def create_and_save_rel_change_contact_plot(fig_config, divider_config, plots_co
     rel_change = True
     create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, rel_change, add_v_legend=True)
 
-def create_and_save_cum_contact_plot(fig_config, divider_config, plots_config, data_filename, save_filename):
+def create_and_save_cum_contact_plot(fig_config, divider_config, plots_config, data_filename, save_filename, *args):
     plot_fcn = close_contact_cum_time_plot
-    create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, add_v_legend=True)
+    create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plots_config, data_filename, save_filename, *args, add_v_legend=True)
 
 def create_and_save_cum_contact_prob_plot(fig_config, divider_config, plots_config, data_filename, save_filename):
     plot_fcn = close_contact_cum_time_prob_plot
@@ -77,9 +88,9 @@ def create_and_save_close_contact_plot(plot_fcn, fig_config, divider_config, plo
         plot_fcn(axes, legend_ax, data_in_file, plots_config, *args)
     plt.savefig(save_filename)
     
-def close_contact_cum_time_plot(axes, legend_ax, data_in_file, plots_config):
+def close_contact_cum_time_plot(axes, legend_ax, data_in_file, plots_config, *args):
     for ax_nr, plot_config in enumerate(plots_config):
-        handles, labels = close_contact_box_violin_plot(axes[ax_nr], plot_config, get_cum_contact_times, data_in_file, plot_config['comb_size'])
+        handles, labels = close_contact_box_violin_plot(axes[ax_nr], plot_config, get_cum_contact_times, data_in_file, plot_config['comb_size'], *args)
      
     legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
     
@@ -386,8 +397,13 @@ def get_contact_count_per_agent(data, infra_name, measure_name, interaction_type
     contacts[:len(contact_data)] = contact_data    
     return contacts
 
-def get_cum_contact_times(data, infra_name, measure_name, interaction_type, comb_size):
-    return data[infra_name].item()[measure_name][interaction_type][comb_size]
+def get_cum_contact_times(data, infra_name, measure_name, interaction_type, comb_size, *args):
+    if len(args) > 0:
+        infra_name_2_file = args[0]
+        infra_data = np.load(infra_name_2_file[infra_name], allow_pickle=True)
+        return infra_data[measure_name].item()[interaction_type][comb_size]        
+    else:
+        return data[infra_name].item()[measure_name][interaction_type][comb_size]
 
 def calc_x_coords(plot_config):
     if 'bar_plot_config' in plot_config:
@@ -396,7 +412,7 @@ def calc_x_coords(plot_config):
         width = plot_config['box_plot_config']['widths']
     set_count = len(plot_config['sub_groups'])
     
-    set_gap = max(0.2, 1-width)
+    set_gap = 2*max(0.2, 1 - width)
     set_width = width*set_count
     
     x = [[] for _ in range(set_count)]
@@ -1872,3 +1888,62 @@ def get_combined_csv_files_from_dir(data_folder):
         if entry.is_file() and entry.suffix == '.csv' and '_ES' in entry.name:
             csv_files.append(entry)
     return csv_files
+
+# ==================================================================================================================================
+def print_diff_stats_table_base(compare_type, fixed_parts, base_case, other_cases, get_distr_fcn, data_set, data_in_file, test_type=CONTINUOUS, normalize=False, print_header=True):
+    if print_header:
+        print(f',,,p_value,cliff_d_val,cliff_d_cat,ks_stat,ks_p_value')
+    
+    data_array = get_distr_fcn(data_set, compare_type, fixed_parts, base_case, data_in_file)
+    
+    for other_case in other_cases:
+        other_data_array = get_distr_fcn(data_set, compare_type, fixed_parts, other_case, data_in_file)
+        p_value = get_p_value(data_array, other_data_array, test_type, normalize=normalize)
+        cliff_d_val, cliff_d_cat  = cliffs_delta(data_array, other_data_array)
+        ks_res = stats.ks_2samp(data_array, other_data_array)
+      
+        print(f',{base_case},{other_case},{p_value:.4f},{cliff_d_val:.4f},{cliff_d_cat},{ks_res.statistic:.4f},{ks_res.pvalue:.4f}')
+
+def get_p_value(data_array, other_data_array, test_type, normalize):
+    if test_type == CATEGORICAL:
+        p_value = do_chi_square_test(data_array, other_data_array, normalize=normalize)
+    else:
+        res = stats.cramervonmises_2samp(data_array, other_data_array)
+        p_value = res.pvalue    
+        
+    return p_value
+
+def get_contact_distr(data_set, compare_type, fixed_parts, compare_part, data_in_file):
+    infra_name, measure_name, interaction_type, data_name = get_data_part_names(compare_type, fixed_parts, compare_part, CONTACTS)
+    return get_contact_count_per_agent(data_set, infra_name, measure_name, interaction_type, data_name, data_in_file)
+  
+def get_close_contact_distr(data_set, compare_type, fixed_parts, compare_part, _):
+    infra_name, measure_name, interaction_type, t_label = get_data_part_names(compare_type, fixed_parts, compare_part, CLOSE_CONTACTS)
+    return get_close_contact_count_per_agent(data_set, infra_name, measure_name, interaction_type, t_label)
+    
+def get_data_part_names(compare_type, fixed_parts, compare_part, contact_type):
+    if compare_type == INFRA_COMP:
+        infra_name = compare_part
+        measure_name = fixed_parts['measure_name']
+        interaction_type = fixed_parts['interaction_type']
+        if contact_type == CLOSE_CONTACTS:
+            el_name = fixed_parts['t_label']
+        else:
+            el_name = fixed_parts['data_name']
+    elif compare_type == SETUP_COMP:
+        infra_name = fixed_parts['infra_name']
+        measure_name = compare_part
+        interaction_type = fixed_parts['interaction_type']
+        if contact_type == CLOSE_CONTACTS:
+            el_name = fixed_parts['t_label']
+        else:
+            el_name = fixed_parts['data_name']
+    elif compare_type == CC_DEF_COMP:
+        infra_name = fixed_parts['infra_name']
+        measure_name = fixed_parts['measure_name']
+        interaction_type = fixed_parts['interaction_type']
+        el_name = compare_part
+    else:
+        raise Exception(f'Unknown compare_type: {compare_type}')
+                
+    return infra_name, measure_name, interaction_type, el_name
