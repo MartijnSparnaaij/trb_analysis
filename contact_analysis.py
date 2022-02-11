@@ -1378,6 +1378,8 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_th
                 indices_2_delete = indices_2_delete | np.sum(combs == el_2_filter_out, axis=1) == 1
         
         combs = combs[~indices_2_delete,:]
+        if len(combs) == 0:
+           return close_contact_count   
         
         close_contact_ind = np.where(np.sum(combs, axis=1) >= time_thres)[0]
         for ind in close_contact_ind:
