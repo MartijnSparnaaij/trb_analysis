@@ -1303,10 +1303,30 @@ def get_agent_cum_contact_count_data(output_filename, config_filenames, comb_siz
                 
         experiment_state, experiment_state_filename = get_experiment_state(experiment_config)
         scenario_filenames = get_scenario_filenames(experiment_state_filename.parent.parent, experiment_state['successful_replications'])
-        cum_contact_data = get_cum_contact_counts_for_sample_size(scenario_filenames, comb_sizes, dist_thres, time_thres)        
+        cum_contact_data = get_agent_cum_contact_counts_from_scen_file(scenario_filenames, comb_sizes, dist_thres, time_thres)        
         cum_contact_data_all[infra_name][measure_name] = cum_contact_data    
     
     np.savez(output_filename, **cum_contact_data_all)
+                     
+def get_agent_cum_contact_counts_from_scen_file(scenario_filenames, comb_sizes, dist_thres, time_thres):
+    file_count = len(scenario_filenames)
+    cum_contact_data = {interaction_type:{comb_size: np.zeros(0, dtype=float) for comb_size in comb_sizes} for interaction_type in INTERACTION_TYPES}
+    cum_contact_data['all'] = {comb_size: np.zeros(0, dtype=float) for comb_size in comb_sizes}
+    for ii, scenario_filename in enumerate(scenario_filenames):
+        print(f'Processing {ii+1} of {file_count}')
+        try:
+            peds, conn_data, time_step = get_ped_and_conn_data(scenario_filename)
+        except:
+            continue
+        
+        contact_times = get_contact_times(conn_data, time_step, dist_thres)
+        for comb_size in comb_sizes:
+            cum_contact_data_local = get_cum_contact_counts_for_sample_size(contact_times, comb_size, time_thres)
+            for interaction_type in INTERACTION_TYPES:
+                cum_contact_data[interaction_type][comb_size] = np.concatenate((cum_contact_data[interaction_type][comb_size], np.array(cum_contact_data_local[interaction_type])))
+            cum_contact_data['all'][comb_size] = np.concatenate((cum_contact_data['all'][comb_size], np.array(cum_contact_data_local['all'])))
+                            
+    return cum_contact_data
                      
 def get_cum_contact_counts_for_sample_size(contact_times, comb_size, time_thres):
     cum_contact_data_local = {STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[], CUSTOMER_STAFF:[]}
