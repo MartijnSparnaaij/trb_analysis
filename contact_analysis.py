@@ -46,6 +46,9 @@ CUT_OFF_DISTANCES_VALUES = (1.0, 1.5, 2.0)
 
 STAFF_TYPE = 'staff'
 CUSTOMER_TYPE = 'customer'
+STAFF_TYPE_NR = 0
+CUSTOMER_TYPE_NR = 1
+
 STAFF_CUSTOMER = 'staff_customer'
 CUSTOMER_CUSTOMER = 'customer_customer'
 CUSTOMER_STAFF = 'customer_staff'
@@ -1189,7 +1192,7 @@ def get_agent_cum_contact_data(output_filename, config_filenames, comb_sizes, di
                 data_from_file = np.load(load_file_name, allow_pickle=True)
                 cum_contact_data_all = {}
                 for key, val in data_from_file.items(): 
-                    cum_contact_data_all[key] = value.item()
+                    cum_contact_data_all[key] = val.item()
             else:
                 cum_contact_data_all = defaultdict(dict)
             cur_infra_name = infra_name
@@ -1345,49 +1348,91 @@ def get_cum_contact_counts_for_sample_size(contact_times, comb_size, time_thres)
                 cum_contact_data_local[CUSTOMER_CUSTOMER].append(cum_contact_count)
                 
     cum_contact_data_local['all'] = []
+    cum_contact_data_local['all_counts'] = {STAFF_TYPE:0, CUSTOMER_TYPE:0, CUSTOMER_STAFF:0}
     for contact_times_per_group in contact_times[CUSTOMER_TYPE].values():
         contact_time_list = contact_times_per_group[STAFF_TYPE] + contact_times_per_group[CUSTOMER_TYPE]
-        cum_contact_count = calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_thres)
-        cum_contact_data_local['all'].append(cum_contact_count)    
+        type_indices = [STAFF_TYPE_NR]*len(contact_times_per_group[STAFF_TYPE]) + [CUSTOMER_TYPE_NR]*len(contact_times_per_group[CUSTOMER_TYPE])
+        cum_contact_count, type_counts = calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_thres, type_indices=type_indices)
+        cum_contact_data_local['all'].append(cum_contact_count)  
+        for key in cum_contact_data_local:
+            cum_contact_data_local['all_counts'][key] += type_counts[key]
     
     return cum_contact_data_local
 
-def calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_thres):
+def calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_thres, type_indices=None):
+    def get_return_tuple():
+        if type_counts is not None:
+            return (close_contact_count, type_counts)
+        else:
+            return close_contact_count
+    
+    if type_indices is not None:
+        type_counts = {STAFF_TYPE:0, CUSTOMER_TYPE:0, CUSTOMER_STAFF:0}
+        type_indices = np.array(type_indices)
+    else:
+        type_counts = None
+    
     contact_time_array = np.array(contact_time_list)
     base_ind = np.where(contact_time_array >= time_thres)[0]
     close_contact_count = len(base_ind)
     if comb_size == 1:
-        return close_contact_count 
+        return get_return_tuple()
     
-    els_2_filter_out = contact_time_array[base_ind].tolist()
+    type_counts = update_type_counts(type_counts, type_indices, base_ind)
+    indices_2_filter_out = base_ind.tolist()
     
     for other_comb_size in range(2, comb_size + 1):
-        combs = np.array(list(it.combinations(contact_time_array, other_comb_size)))
+        comb_indices = np.array(list(it.combinations(range(len(contact_time_array)), other_comb_size)))
+        combs = contact_time_array[comb_indices]
+        type_combs = type_indices[comb_indices]
         if len(combs) == 0:
-           return close_contact_count     
+            return get_return_tuple()   
         
-        indices_2_delete = np.zeros(len(combs), dtype=bool)
-        for el_2_filter_out in els_2_filter_out:
-            if isinstance(el_2_filter_out, list):
-                has_el_sum = np.zeros(len(combs))
-                for el in el_2_filter_out:
-                    has_el_sum += np.sum(combs == el, axis=1)
-                
-                indices_2_delete = indices_2_delete | (has_el_sum == len(el_2_filter_out))
+        indices_2_ignore = np.zeros(len(combs), dtype=bool)
+        for ind_2_filter_out in indices_2_filter_out:
+            if isinstance(ind_2_filter_out, list):
+                has_ind_sum = np.zeros(len(combs))
+                for ind in ind_2_filter_out:
+                    has_ind_sum += np.sum(comb_indices == ind, axis=1)                
+                indices_2_ignore = indices_2_ignore | (has_ind_sum == len(ind_2_filter_out))
             else:
-                indices_2_delete = indices_2_delete | np.sum(combs == el_2_filter_out, axis=1) == 1
+                indices_2_ignore = indices_2_ignore | np.sum(comb_indices == ind_2_filter_out, axis=1) == 1
         
-        combs = combs[~indices_2_delete,:]
+        combs = combs[~indices_2_ignore,:]
+        
         if len(combs) == 0:
-           return close_contact_count   
+            return get_return_tuple()  
         
+        comb_indices = comb_indices[~indices_2_ignore,:]
         close_contact_ind = np.where(np.sum(combs, axis=1) >= time_thres)[0]
         for ind in close_contact_ind:
-            els_2_filter_out.append(combs[ind,:].tolist())
+            indices_2_filter_out.append(comb_indices[ind,:].tolist())
             
-        close_contact_count += len(close_contact_ind)/len(combs)   
+        close_contact_count += len(close_contact_ind)/len(combs)
+        
+        type_combs = type_combs[~indices_2_ignore,:]
+        type_counts = update_type_counts(type_counts, type_combs, close_contact_ind)   
    
-    return close_contact_count 
+    return get_return_tuple()
+
+def update_type_counts(type_counts, type_combs, close_contact_ind):
+    if type_counts is None:
+        return
+    
+    if len(close_contact_ind) == 0:
+        return type_counts
+    
+    if type_combs.ndim == 1:
+        type_counts[STAFF_TYPE] += np.sum(type_combs[close_contact_ind] == STAFF_TYPE_NR)
+        type_counts[CUSTOMER_TYPE] += np.sum(type_combs[close_contact_ind] == CUSTOMER_TYPE_NR)
+        return type_counts
+
+    type_sums = np.sum(type_combs[close_contact_ind,:], axis=1)
+    type_counts[STAFF_TYPE] += np.sum(type_sums == 0)
+    type_counts[CUSTOMER_TYPE] += np.sum(type_sums == type_combs.shape[1])
+    type_counts[CUSTOMER_STAFF] += np.sum((type_sums > 0) & (type_sums < type_combs.shape[1]))
+            
+    return type_counts
 
 # ================================================================================================
 def process_cum_contact_file(input_filename, output_filename, time_thres):

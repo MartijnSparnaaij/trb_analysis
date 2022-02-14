@@ -2,7 +2,7 @@
 #from nomad.NOMAD.input_manager import RestaurantSchedulerInput
 import numpy as np
 import itertools as it
-from contact_analysis import calc_cum_contact_count_for_sample_size
+from contact_analysis import calc_cum_contact_count_for_sample_size, STAFF_TYPE_NR, CUSTOMER_TYPE_NR
 
 def runTest(schedulerInput, destinations, pedParameterSets, 
                                 sources, activities, walkLevels):
@@ -87,7 +87,7 @@ def test_comb_cum__time_prob():
         print(f'{1} - {calc_cum_contact_count_for_sample_size([15], comb_size, time_thres)}')
     correct = [0,1,1]
     for ii, comb_size in enumerate(comb_sizes):
-         print(f'{correct[ii]} - {calc_cum_contact_count_for_sample_size([8,7], comb_size, time_thres)}') 
+        print(f'{correct[ii]} - {calc_cum_contact_count_for_sample_size([8,7], comb_size, time_thres)}') 
     correct = [0,0,1]
     for ii, comb_size in enumerate(comb_sizes):
         print(f'{correct[ii]} - {calc_cum_contact_count_for_sample_size([4,6, 5], comb_size, time_thres)}')
@@ -98,5 +98,34 @@ def test_comb_cum__time_prob():
         print(f'{correct[ii]} - {calc_cum_contact_count_for_sample_size(array, comb_size, time_thres)}')
     
 
+def test_comb_type_counts():
+    
+    contact_time_list = [15,7,8,6,4,5,2]
+    type_indices = [STAFF_TYPE_NR, CUSTOMER_TYPE_NR, STAFF_TYPE_NR, CUSTOMER_TYPE_NR, CUSTOMER_TYPE_NR, CUSTOMER_TYPE_NR, CUSTOMER_TYPE_NR]   
+    comb_size = 3
+    time_thres = 15
+    
+    calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_thres, type_indices=type_indices)
+
+def return_test():
+    res_1 = return_test_fcn()
+    print(res_1)
+
+    res_2, res_3 = return_test_fcn(type_counts={1:1})
+    print(res_2)
+    print(res_3)
+
+    
+def return_test_fcn(type_counts=None):
+    def get_return_tuple(type_counts=None):
+        if type_counts is not None:
+            return (close_contact_count, type_counts)
+        else:
+            return close_contact_count
+        
+    close_contact_count = [1,2,3]
+    
+    return get_return_tuple(type_counts=type_counts)
+    
 if __name__ == '__main__':
-    test_comb_cum__time_prob()
+    test_comb_type_counts()

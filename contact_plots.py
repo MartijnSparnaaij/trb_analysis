@@ -106,7 +106,7 @@ def close_contact_cum_time_prob_plot(axes, legend_ax, data_in_file, plots_config
         for line_nr, measure_name in enumerate(plot_config['measure_names']):
             line_y = []
             for comb_size in plot_config['comb_sizes']:
-                line_y.append(infra_data[measure_name][interaction_type][comb_size])
+                line_y.append(np.mean(infra_data[measure_name][interaction_type][comb_size]))
             
             line_handles = ax.plot(x, line_y, color=plot_config['line_color_order'][line_nr], linestyle=plot_config['style_order'][line_nr], 
                 linewidth=plot_config['width_order'][line_nr], marker=plot_config['marker_order'][line_nr], **plot_config['line_config'])
@@ -504,10 +504,9 @@ def get_cdf_of_data(contact_data):
 
 def do_chi_square_test(base_array, compare_array, normalize=True):
     base_counts, compare_counts, values = get_value_counts(base_array, compare_array, normalize)
-    
     if len(values) == 1:
         return 1.0
-    
+        
     res = stats.chisquare(compare_counts, base_counts)
     return res.pvalue    
 
@@ -519,7 +518,7 @@ def get_value_counts(base_array, compare_array, normalize):
     compare_values, compare_counts = np.unique(compare_array, return_counts=True)
     if normalize:
         compare_counts = compare_counts/sum(compare_counts)
-    else:
+    elif abs(sum(base_counts) - sum(compare_counts)) > 0:
         compare_counts = compare_counts/sum(compare_counts)*sum(base_counts)
     compare_counts_dict = dict(zip(compare_values, compare_counts))
     values = np.unique(np.concatenate((base_values, compare_values)))
