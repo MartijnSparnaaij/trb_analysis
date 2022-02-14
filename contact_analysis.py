@@ -1315,19 +1315,22 @@ def get_agent_cum_contact_counts_from_scen_file(scenario_filenames, comb_sizes, 
     file_count = len(scenario_filenames)
     cum_contact_data = {interaction_type:{comb_size: np.zeros(0, dtype=float) for comb_size in comb_sizes} for interaction_type in INTERACTION_TYPES}
     cum_contact_data['all'] = {comb_size: np.zeros(0, dtype=float) for comb_size in comb_sizes}
+    cum_contact_data['all_counts'] = {STAFF_TYPE:0, CUSTOMER_TYPE:0, CUSTOMER_STAFF:0}
+    
     for ii, scenario_filename in enumerate(scenario_filenames):
         print(f'Processing {ii+1} of {file_count}')
         try:
             peds, conn_data, time_step = get_ped_and_conn_data(scenario_filename)
         except:
             continue
-        
         contact_times = get_contact_times(conn_data, time_step, dist_thres)
         for comb_size in comb_sizes:
             cum_contact_data_local = get_cum_contact_counts_for_sample_size(contact_times, comb_size, time_thres)
             for interaction_type in INTERACTION_TYPES:
                 cum_contact_data[interaction_type][comb_size] = np.concatenate((cum_contact_data[interaction_type][comb_size], np.array(cum_contact_data_local[interaction_type])))
             cum_contact_data['all'][comb_size] = np.concatenate((cum_contact_data['all'][comb_size], np.array(cum_contact_data_local['all'])))
+            for key in cum_contact_data_local['all_counts']:
+                cum_contact_data['all_counts'][key] += cum_contact_data_local['all_counts'][key]
                             
     return cum_contact_data
                      
