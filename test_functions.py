@@ -105,7 +105,8 @@ def test_comb_type_counts():
     comb_size = 3
     time_thres = 15
     
-    calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_thres, type_indices=type_indices)
+    _, type_counts = calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_thres, type_indices=type_indices)
+    print(type_counts)
 
 def return_test():
     res_1 = return_test_fcn()
