@@ -1382,7 +1382,7 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_th
     indices_2_filter_out = base_ind.tolist()
     
     for other_comb_size in range(2, comb_size + 1):
-        comb_indices = np.array(list(it.combinations(range(len(contact_time_array)), other_comb_size)))
+        comb_indices = np.array(list(it.combinations(range(len(contact_time_array)), other_comb_size)), dtype=int)
         combs = contact_time_array[comb_indices]
         
         if len(combs) == 0:
