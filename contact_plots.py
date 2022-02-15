@@ -94,19 +94,27 @@ def close_contact_cum_time_plot(axes, legend_ax, data_in_file, plots_config, *ar
      
     legend_ax.legend(handles, labels, **plots_config[0]['legend_config'])
     
-def close_contact_cum_time_prob_plot(axes, legend_ax, data_in_file, plots_config):
+def close_contact_cum_time_prob_plot(axes, legend_ax, data_in_file, plots_config, left_label_axes=None):
     legend_labels = []
     legend_handles = []
     
     for ax_nr, plot_config in enumerate(plots_config):
         ax = axes[ax_nr]
         x = list(range(len(plot_config['comb_sizes'])))
-        infra_data = data_in_file[plot_config['infra_name']].item()
+        infra_name = plot_config['infra_name']
+        infra_data = data_in_file[infra_name].item()
         interaction_type = plot_config['interaction_type']
+        
+        if 'plot_type' in plot_config and plot_config['plot_type'] == 'interact_fractions':
+            data_get_fcn = get_staff_fraction
+        else:
+            data_get_fcn = get_mean_increase_in_close_contacts
+        
         for line_nr, measure_name in enumerate(plot_config['measure_names']):
             line_y = []
             for comb_size in plot_config['comb_sizes']:
-                line_y.append(np.mean(infra_data[measure_name][interaction_type][comb_size]))
+                line_y.append(data_get_fcn(infra_data, measure_name, interaction_type, comb_size))
+                #print_counts_fractions(infra_data, infra_name, measure_name, interaction_type, comb_size)
             
             line_handles = ax.plot(x, line_y, color=plot_config['line_color_order'][line_nr], linestyle=plot_config['style_order'][line_nr], 
                 linewidth=plot_config['width_order'][line_nr], marker=plot_config['marker_order'][line_nr], **plot_config['line_config'])
@@ -118,11 +126,40 @@ def close_contact_cum_time_prob_plot(axes, legend_ax, data_in_file, plots_config
   
         for x_coord in x:
             ax.axvline(x_coord, **plot_config['v_line_config'])
+    
+        if 'left_label' in plot_config:
+            ax_ind, label = plot_config['left_label']
+            left_label_axes[ax_ind].text(0.5, 0.5, label, **plot_config['text_config'])
             
         plot_config['main_ax_config']['x_ticks'] = x
         set_ax_config(axes[ax_nr], plot_config['main_ax_config'])
     
+    
+    
     legend_ax.legend(legend_handles, legend_labels, **plot_config['legend_config'])
+  
+def get_mean_increase_in_close_contacts(infra_data, measure_name, interaction_type, comb_size):
+    return np.mean(infra_data[measure_name][interaction_type][comb_size])
+    
+def get_staff_fraction(infra_data, measure_name, interaction_type, comb_size):
+    all_counts = infra_data[measure_name]['all_counts'][comb_size]
+    counts_sum = sum(all_counts.values())
+    if counts_sum == 0:
+        return 1
+    
+    return all_counts["staff"]/counts_sum
+    
+def print_counts_fractions(infra_data, infra_name, measure_name, interaction_type, comb_size):
+    if interaction_type != 'all' or 'all_counts' not in infra_data[measure_name]:
+        return
+    
+    all_counts = infra_data[measure_name]['all_counts'][comb_size]
+    counts_sum = sum(all_counts.values())
+    if counts_sum > 0:
+        print(f'{infra_name},{measure_name},{interaction_type},{comb_size},{all_counts["staff"]/counts_sum},{all_counts["customer"]/counts_sum},{all_counts["customer_staff"]/counts_sum},{all_counts["staff"]},{all_counts["customer"]},{all_counts["customer_staff"]},{counts_sum}')
+    else:
+        print(f'{infra_name},{measure_name},{interaction_type},{comb_size},')
+    
     
 def close_contact_bar_plot(axes, legend_ax, data_in_file, plots_config):
     categories = (
@@ -1337,7 +1374,7 @@ def mean_plot(ax, data, plot_config, x):
         ax.axvline(x_coord, **plot_config['v_line_config'])
 
     ax.axhline(0, linewidth=2, color='k', linestyle='-', zorder=4)
-    ax.bar(x, mean_data, zorder=3, color=colors, **plot_config['mean_bar_config'])
+    #ax.bar(x, mean_data, zorder=3, color=colors, **plot_config['mean_bar_config'])
     set_ax_config(ax, plot_config['top_ax_config'])
         
 def set_ax_config(ax, ax_config):
