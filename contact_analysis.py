@@ -1362,7 +1362,7 @@ def get_cum_contact_counts_for_sample_sizes(contact_times, comb_sizes, time_thre
         cum_contact_count, type_counts = calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_thres, type_indices=type_indices)
         for comb_size in comb_sizes:
             cum_contact_data_local['all'][comb_size].append(cum_contact_count[comb_size])  
-            for key in type_counts:
+            for key in type_counts[comb_size]:
                 cum_contact_data_local['all_counts'][comb_size][key] += type_counts[comb_size][key]
     
     return cum_contact_data_local
