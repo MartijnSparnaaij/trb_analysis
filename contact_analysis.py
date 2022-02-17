@@ -1391,8 +1391,9 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_t
 
     if 1 in comb_sizes:
         close_contact_count_dict[1] = close_contact_count
-        for key, value in type_counts.items():
-            type_counts_comb[1][key] = value 
+        if type_indices is not None:
+            for key, value in type_counts.items():
+                type_counts_comb[1][key] = value 
 
     if len(comb_sizes) == 1 and comb_sizes[0] == 1:
         return get_return_tuple()
@@ -1433,8 +1434,9 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_t
         
         if other_comb_size in comb_sizes:
             close_contact_count_dict[1] = close_contact_count
-            for key, value in type_counts.items():
-                type_counts_comb[1][key] = value 
+            if type_indices is not None:
+                for key, value in type_counts.items():
+                    type_counts_comb[1][key] = value 
                     
     return get_return_tuple()
 
