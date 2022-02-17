@@ -1324,67 +1324,83 @@ def get_agent_cum_contact_counts_from_scen_file(scenario_filenames, comb_sizes, 
         except:
             continue
         contact_times = get_contact_times(conn_data, time_step, dist_thres)
+        
+        cum_contact_data_local = get_cum_contact_counts_for_sample_sizes(contact_times, comb_sizes, time_thres)
         for comb_size in comb_sizes:
-            cum_contact_data_local = get_cum_contact_counts_for_sample_size(contact_times, comb_size, time_thres)
             for interaction_type in INTERACTION_TYPES:
-                cum_contact_data[interaction_type][comb_size] = np.concatenate((cum_contact_data[interaction_type][comb_size], np.array(cum_contact_data_local[interaction_type])))
-            cum_contact_data['all'][comb_size] = np.concatenate((cum_contact_data['all'][comb_size], np.array(cum_contact_data_local['all'])))
+                cum_contact_data[interaction_type][comb_size] = np.concatenate((cum_contact_data[interaction_type][comb_size], np.array(cum_contact_data_local[interaction_type][comb_size])))
+            cum_contact_data['all'][comb_size] = np.concatenate((cum_contact_data['all'][comb_size], np.array(cum_contact_data_local['all'][comb_size])))
             for key in cum_contact_data_local['all_counts']:
-                cum_contact_data['all_counts'][comb_size][key] += cum_contact_data_local['all_counts'][key]
+                cum_contact_data['all_counts'][comb_size][key] += cum_contact_data_local['all_counts'][comb_size][key]
                             
     return cum_contact_data
                      
-def get_cum_contact_counts_for_sample_size(contact_times, comb_size, time_thres):
-    cum_contact_data_local = {STAFF_CUSTOMER:[], CUSTOMER_CUSTOMER:[], CUSTOMER_STAFF:[]}
+def get_cum_contact_counts_for_sample_sizes(contact_times, comb_sizes, time_thres):
+    comb_size_dict = {comb_size:[] for comb_size in comb_sizes}
+    cum_contact_data_local = {STAFF_CUSTOMER:deepcopy(comb_size_dict), CUSTOMER_CUSTOMER:deepcopy(comb_size_dict), CUSTOMER_STAFF:deepcopy(comb_size_dict)}
     for contact_time_list in contact_times[STAFF_TYPE].values():
-        cum_contact_count = calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_thres)
-        cum_contact_data_local[STAFF_CUSTOMER].append(cum_contact_count)
+        cum_contact_count = calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_thres)
+        for comb_size in comb_sizes: 
+            cum_contact_data_local[STAFF_CUSTOMER][comb_size].append(cum_contact_count[comb_size])
  
     for contact_times_per_group in contact_times[CUSTOMER_TYPE].values():
         for other_group_type, contact_time_list in contact_times_per_group.items():
             if len(contact_time_list) == 0:
                 continue
-            cum_contact_count = calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_thres)
-            if other_group_type == STAFF_TYPE:
-                cum_contact_data_local[CUSTOMER_STAFF].append(cum_contact_count)
-            else:
-                cum_contact_data_local[CUSTOMER_CUSTOMER].append(cum_contact_count)
-                
-    cum_contact_data_local['all'] = []
-    cum_contact_data_local['all_counts'] = {STAFF_TYPE:0, CUSTOMER_TYPE:0, CUSTOMER_STAFF:0}
+            cum_contact_count = calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_thres)
+            for comb_size in comb_sizes:
+                if other_group_type == STAFF_TYPE:
+                    cum_contact_data_local[CUSTOMER_STAFF][comb_size].append(cum_contact_count[comb_size])
+                else:
+                    cum_contact_data_local[CUSTOMER_CUSTOMER][comb_size].append(cum_contact_count[comb_size])
+                    
+    cum_contact_data_local['all'] = deepcopy(comb_size_dict)
+    cum_contact_data_local['all_counts'] = {comb_size:{STAFF_TYPE:0, CUSTOMER_TYPE:0, CUSTOMER_STAFF:0} for comb_size in comb_sizes}
     for contact_times_per_group in contact_times[CUSTOMER_TYPE].values():
         contact_time_list = contact_times_per_group[STAFF_TYPE] + contact_times_per_group[CUSTOMER_TYPE]
         type_indices = [STAFF_TYPE_NR]*len(contact_times_per_group[STAFF_TYPE]) + [CUSTOMER_TYPE_NR]*len(contact_times_per_group[CUSTOMER_TYPE])
-        cum_contact_count, type_counts = calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_thres, type_indices=type_indices)
-        cum_contact_data_local['all'].append(cum_contact_count)  
-        for key in type_counts:
-            cum_contact_data_local['all_counts'][key] += type_counts[key]
+        cum_contact_count, type_counts = calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_thres, type_indices=type_indices)
+        for comb_size in comb_sizes:
+            cum_contact_data_local['all'][comb_size].append(cum_contact_count[comb_size])  
+            for key in type_counts:
+                cum_contact_data_local['all_counts'][comb_size][key] += type_counts[comb_size][key]
     
     return cum_contact_data_local
 
-def calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_thres, type_indices=None):
+def calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_thres, type_indices=None):
     def get_return_tuple():
         if type_counts is not None:
-            return (close_contact_count, type_counts)
+            return (close_contact_count_dict, type_counts)
         else:
-            return close_contact_count
+            return close_contact_count_dict
     
     if type_indices is not None:
+        type_counts_comb = {comb_size:{STAFF_TYPE:0, CUSTOMER_TYPE:0, CUSTOMER_STAFF:0} for comb_size in comb_sizes}
         type_counts = {STAFF_TYPE:0, CUSTOMER_TYPE:0, CUSTOMER_STAFF:0}
         type_indices = np.array(type_indices)
     else:
         type_counts = None
     
+    close_contact_count_dict = {comb_size:0 for comb_size in comb_sizes}
+    
     contact_time_array = np.array(contact_time_list)
     base_ind = np.where(contact_time_array >= time_thres)[0]
     close_contact_count = len(base_ind)
-    if comb_size == 1:
-        return get_return_tuple()
     
     update_type_counts(type_counts, type_indices, base_ind)
+
+    if 1 in comb_sizes:
+        close_contact_count_dict[1] = close_contact_count
+        for key, value in type_counts.items():
+            type_counts_comb[1][key] = value 
+
+    if len(comb_sizes) == 1 and comb_sizes[0] == 1:
+        return get_return_tuple()
+
     indices_2_filter_out = base_ind.tolist()
+    max_comb_size = max(comb_size)
     
-    for other_comb_size in range(2, comb_size + 1):
+    for other_comb_size in range(2, max_comb_size + 1):
         comb_indices = np.array(list(it.combinations(range(len(contact_time_array)), other_comb_size)), dtype=int)
         combs = contact_time_array[comb_indices]
         
@@ -1414,7 +1430,12 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_size, time_th
         close_contact_count += len(close_contact_ind)/len(combs)
         
         update_type_counts(type_counts, type_indices, close_contact_ind, comb_indices, indices_2_ignore)
-   
+        
+        if other_comb_size in comb_sizes:
+            close_contact_count_dict[1] = close_contact_count
+            for key, value in type_counts.items():
+                type_counts_comb[1][key] = value 
+                    
     return get_return_tuple()
 
 def update_type_counts(type_counts, type_indices, close_contact_ind, comb_indices=None, indices_2_ignore=None):
