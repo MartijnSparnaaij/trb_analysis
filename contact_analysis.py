@@ -1338,15 +1338,17 @@ def get_agent_cum_contact_counts_from_scen_file(scenario_filenames, comb_sizes, 
 def get_cum_contact_counts_for_sample_sizes(contact_times, comb_sizes, time_thres):
     comb_size_dict = {comb_size:[] for comb_size in comb_sizes}
     cum_contact_data_local = {STAFF_CUSTOMER:deepcopy(comb_size_dict), CUSTOMER_CUSTOMER:deepcopy(comb_size_dict), CUSTOMER_STAFF:deepcopy(comb_size_dict)}
-    for contact_time_list in contact_times[STAFF_TYPE].values():
+    for ii, contact_time_list in enumerate(contact_times[STAFF_TYPE].values()):
+        print(f'{ii}/{len(contact_times[STAFF_TYPE])} Contact time list length = {len(contact_time_list)}')
         cum_contact_count = calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_thres)
         for comb_size in comb_sizes: 
             cum_contact_data_local[STAFF_CUSTOMER][comb_size].append(cum_contact_count[comb_size])
  
-    for contact_times_per_group in contact_times[CUSTOMER_TYPE].values():
-        for other_group_type, contact_time_list in contact_times_per_group.items():
+    for ii, contact_times_per_group in enumerate(contact_times[CUSTOMER_TYPE].values()):
+        for jj, other_group_type, contact_time_list in enumerate(contact_times_per_group.items()):
             if len(contact_time_list) == 0:
                 continue
+            print(f'{ii},{jj}/{len(contact_times[CUSTOMER_TYPE])} Contact time list length = {len(contact_time_list)}')
             cum_contact_count = calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_thres)
             for comb_size in comb_sizes:
                 if other_group_type == STAFF_TYPE:
@@ -1356,8 +1358,9 @@ def get_cum_contact_counts_for_sample_sizes(contact_times, comb_sizes, time_thre
                     
     cum_contact_data_local['all'] = deepcopy(comb_size_dict)
     cum_contact_data_local['all_counts'] = {comb_size:{STAFF_TYPE:0, CUSTOMER_TYPE:0, CUSTOMER_STAFF:0} for comb_size in comb_sizes}
-    for contact_times_per_group in contact_times[CUSTOMER_TYPE].values():
+    for ii, contact_times_per_group in enumerate(contact_times[CUSTOMER_TYPE].values()):
         contact_time_list = contact_times_per_group[STAFF_TYPE] + contact_times_per_group[CUSTOMER_TYPE]
+        print(f'{ii}/{len(contact_times[CUSTOMER_TYPE])} Contact time list length = {len(contact_time_list)}')
         type_indices = [STAFF_TYPE_NR]*len(contact_times_per_group[STAFF_TYPE]) + [CUSTOMER_TYPE_NR]*len(contact_times_per_group[CUSTOMER_TYPE])
         cum_contact_count, type_counts = calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_thres, type_indices=type_indices)
         for comb_size in comb_sizes:
@@ -1399,11 +1402,12 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_t
         return get_return_tuple()
 
     indices_2_filter_out = base_ind.tolist()
-    max_comb_size = max(comb_sizes)
+    max_comb_size = max(comb_sizes)    
     
     for other_comb_size in range(2, max_comb_size + 1):
         comb_indices = np.array(list(it.combinations(range(len(contact_time_array)), other_comb_size)), dtype=int)
         combs = contact_time_array[comb_indices]
+        print(f'Comb list size for {other_comb_size} = {len(combs)}')
         
         if len(combs) == 0:
             return get_return_tuple()   
