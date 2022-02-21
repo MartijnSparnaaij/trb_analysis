@@ -1426,7 +1426,7 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_t
         logger.info(f'indices_2_filter_out = {len(indices_2_filter_out)}')
         
         indices_2_ignore = np.zeros(len(combs), dtype=bool)
-        for filter_set in indices_2_filter_out.items():
+        for filter_set in indices_2_filter_out:
             np.bitwise_or(indices_2_ignore, np.sum(np.isin(comb_indices, filter_set), axis=1) == len(filter_set), out=indices_2_ignore)
               
         logger.info('Filtered index')
