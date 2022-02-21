@@ -1421,6 +1421,7 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_t
         if len(combs) == 0:
             return get_return_tuple()   
         
+        logger.info(f'indices_2_filter_out = {len(indices_2_filter_out)}')
         indices_2_ignore = np.zeros(len(combs), dtype=bool)
         for ind_2_filter_out in indices_2_filter_out:
             if isinstance(ind_2_filter_out, list):
