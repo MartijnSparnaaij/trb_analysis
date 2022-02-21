@@ -94,6 +94,13 @@ CLOSE_CONTACT_SET = (CLOSE_CONTACT_NON_CUM, CLOSE_CONTACT_CUM, CLOSE_CONTACT_BOT
    
    
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+
+ch = logging.StreamHandler()
+ch.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+ch.setFormatter(formatter)
+logger.addHandler(ch)
 
 def start_experiments(scenario_filenames, lrcm_filename_per_scenario, log_dir, log_name, convergence_config=CONVERGENCE_CONFIG, cut_off_distances=CUT_OFF_DISTANCES_VALUES, max_replications=MAX_REPLICATIONS, init_replications=INIT_REPLICATIONS):
     run_experiments(scenario_filenames, lrcm_filename_per_scenario, log_dir, log_name, convergence_config, cut_off_distances, max_replications, init_replications)
