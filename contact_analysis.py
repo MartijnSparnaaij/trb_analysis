@@ -1410,7 +1410,9 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_t
     if len(comb_sizes) == 1 and comb_sizes[0] == 1:
         return get_return_tuple()
 
-    indices_2_filter_out = base_ind.tolist()
+    indices_2_filter_out = []
+    contact_time_array = np.delete(contact_time_array, base_ind)
+    
     max_comb_size = max(comb_sizes)    
     
     for other_comb_size in range(2, max_comb_size + 1):
@@ -1422,16 +1424,11 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_t
             return get_return_tuple()   
         
         logger.info(f'indices_2_filter_out = {len(indices_2_filter_out)}')
-        indices_2_ignore = np.zeros(len(combs), dtype=bool)
-        for ind_2_filter_out in indices_2_filter_out:
-            if isinstance(ind_2_filter_out, list):
-                has_ind_sum = np.zeros(len(combs))
-                for ind in ind_2_filter_out:
-                    has_ind_sum += np.sum(comb_indices == ind, axis=1)                
-                indices_2_ignore = indices_2_ignore | (has_ind_sum == len(ind_2_filter_out))
-            else:
-                indices_2_ignore = indices_2_ignore | np.sum(comb_indices == ind_2_filter_out, axis=1) == 1
         
+        indices_2_ignore = np.zeros(len(combs), dtype=bool)
+        for filter_set in indices_2_filter_out.items():
+            np.bitwise_or(indices_2_ignore, np.sum(np.isin(comb_indices, filter_set), axis=1) == len(filter_set), out=indices_2_ignore)
+              
         logger.info('Filtered index')
         
         combs = combs[~indices_2_ignore,:]
@@ -1459,6 +1456,12 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_t
         logger.info('Type counts update')
                     
     return get_return_tuple()
+
+def filter_combs(indices_2_ignore, has_ind_sum, ind_2_filter_out):
+    pass
+
+
+    return indices_2_ignore, has_ind_sum
 
 def update_type_counts(type_counts, type_indices, close_contact_ind, comb_indices=None, indices_2_ignore=None):
     if type_counts is None:
