@@ -1417,7 +1417,7 @@ def calc_cum_contact_count_for_sample_size(contact_time_list, comb_sizes, time_t
     
     for other_comb_size in range(2, max_comb_size + 1):
         combs_it = it.combinations(range(len(contact_time_array)), other_comb_size)
-        logger.info(f'Filter combs: indices_2_filter_out = {len(indices_2_filter_out)}')        
+        logger.info(f'Filter combs {other_comb_size}: indices_2_filter_out = {len(indices_2_filter_out)}')        
         combs_it = it.filterfalse(lambda x: any(all(el in x for el in filter_set) for filter_set in indices_2_filter_out), combs_it)
         comb_indices = np.array(list(combs_it), dtype=int)
         if len(comb_indices) == 0:
