@@ -1472,14 +1472,14 @@ def calc_cum_contact_count_for_sample_sizes(contact_time_list, comb_sizes, time_
 def filter_combs(comb_indices, indices_2_ignore, indices_2_filter_out, base_sum_ind, iter_depth):
     for base_ind, other_indices in indices_2_filter_out.items():
         if other_indices is None:
-            return indices_2_ignore | (base_sum_ind + np.sum(comb_indices == base_ind, axis=1) == iter_depth) 
+            return indices_2_ignore | ((base_sum_ind + np.sum(comb_indices == base_ind, axis=1)) == iter_depth) 
         
         base_sum_ind = base_sum_ind + np.sum(comb_indices == base_ind, axis=1)         
         for other_ind, value in other_indices.items():
             if value is not None:
                 indices_2_ignore = filter_combs(comb_indices, indices_2_ignore, value, base_sum_ind, iter_depth + 1)
             else:
-                indices_2_ignore = indices_2_ignore | (base_sum_ind + np.sum(comb_indices == other_ind, axis=1) == iter_depth) 
+                indices_2_ignore = indices_2_ignore | ((base_sum_ind + np.sum(comb_indices == other_ind, axis=1)) == iter_depth) 
                                 
     return indices_2_ignore
 
